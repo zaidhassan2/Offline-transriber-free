@@ -1,0 +1,14 @@
+[theme]
+primaryColor = "#667eea"
+secondaryColor = "#764ba2"
+backgroundColor = "#f8f9fa"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#111827"
+font = "sans serif"
+
+[client]
+showErrorDetails = false
+maxUploadSize = 2000
+
+[logger]
+level = "info"

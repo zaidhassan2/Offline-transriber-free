@@ -13,7 +13,7 @@ Developed by [Zaid Hassan](https://zaidhassan.me)
 * 🛡 **Privacy-First:** Entire pipeline runs locally - no data sent to cloud
 * 🤖 **AI-Powered:** Uses OpenAI Whisper for accurate speech-to-text
 * ⚡ **GPU Acceleration:** Automatic CUDA support for NVIDIA GPUs
-* 📁 **Multiple Export Formats:** Download as `.txt`, `.srt`, `.docx`, `.pdf`
+* 📁 **Multiple Export Formats:** Download as `.txt`, `.srt`, `.docx` (text-based), `.pdf` (text-based)
 * 🕐 **Timestamped Segments:** Each segment tagged with `[HH:MM:SS]` format
 * 🎨 **Premium UI:** Modern, responsive design with gradient styling
 

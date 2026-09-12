@@ -281,23 +281,23 @@ if st.session_state.transcription_result:
         )
 
     with col4:
-        # DOCX download
+        # Simple text-based DOCX
         docx_content = create_docx_content(result.text)
         st.download_button(
             label="📑 Download .DOCX",
             data=docx_content,
             file_name=f"transcript_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            mime="text/plain"
         )
 
-    # PDF download (separate row)
+    # PDF download (separate row) - simple text-based
     st.markdown("### 📄 Additional Formats")
     pdf_content = create_pdf_content(result.text)
     st.download_button(
-        label="📕 Download .PDF",
+        label="📕 Download .PDF (Text)",
         data=pdf_content,
         file_name=f"transcript_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-        mime="application/pdf"
+        mime="text/plain"
     )
 
     # Reset button

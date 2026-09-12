@@ -1,21 +1,22 @@
-# 🎙️ AI Video Transcriber
+# AI Video Transcriber
 
-**Transform your videos into text with local AI - No cloud, No data leaks**
+**Transform your videos and audio into text with local AI - No cloud, No data leaks**
 
 Developed by [Zaid Hassan](https://zaidhassan.me)
 
 ---
 
-## ✨ Features
+## Features
 
-* 🎥 **Video Upload Support:** Upload `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm` files
-* 🚀 **Real-Time Progress:** Watch the transcription status live with progress indicators
-* 🛡 **Privacy-First:** Entire pipeline runs locally - no data sent to cloud
-* 🤖 **AI-Powered:** Uses OpenAI Whisper for accurate speech-to-text
-* ⚡ **GPU Acceleration:** Automatic CUDA support for NVIDIA GPUs
-* 📁 **Multiple Export Formats:** Download as `.txt`, `.srt`, `.docx` (text-based), `.pdf` (text-based)
-* 🕐 **Timestamped Segments:** Each segment tagged with `[HH:MM:SS]` format
-* 🎨 **Premium UI:** Modern, responsive design with gradient styling
+* **Video Upload Support:** Upload `.mp4`, `.mov`, `.avi`, `.mkv`, `.webm` files
+* **Audio Upload Support:** Upload `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg` files
+* **Real-Time Progress:** Watch the transcription status live with progress indicators
+* **Privacy-First:** Entire pipeline runs locally - no data sent to cloud
+* **AI-Powered:** Uses faster-whisper for accurate speech-to-text
+* **GPU Acceleration:** Automatic CUDA support for NVIDIA GPUs
+* **Multiple Export Formats:** Download as `.txt`, `.srt`, `.docx` (text-based), `.pdf` (text-based)
+* **Timestamped Segments:** Each segment tagged with `[HH:MM:SS]` format
+* **Premium UI:** Modern, responsive design with gradient styling
 
 ---
 

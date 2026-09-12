@@ -72,8 +72,42 @@ def _probe_audio_stream(media_path: Path) -> bool:
         return True  # Assume audio present
 
 
+def _is_audio_file(media_path: Path) -> bool:
+    """Check if a file is already an audio format."""
+    audio_extensions = {'.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac', '.wma'}
+    return media_path.suffix.lower() in audio_extensions
+
+
 def _extract_audio_to_wav(media_path: Path) -> Path:
     """Extract audio from a media file to 16 kHz mono WAV."""
+    # If it's already an audio file, just convert to WAV format
+    if _is_audio_file(media_path):
+        wav_path = media_path.with_suffix(".wav")
+        if wav_path.exists():
+            wav_path.unlink()
+        
+        logger.info(f"Converting audio file to WAV: {media_path} → {wav_path}")
+        
+        common_tail = [
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "-y",
+            str(wav_path),
+        ]
+        
+        cmd = ["ffmpeg", "-i", str(media_path)] + common_tail
+        
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            if result.returncode == 0 and wav_path.exists() and wav_path.stat().st_size > 44:
+                logger.info(f"Audio converted successfully: {wav_path}")
+                return wav_path
+            raise RuntimeError(f"Audio conversion failed: {result.stderr[-400:] if result.stderr else 'unknown error'}")
+        except Exception as e:
+            raise RuntimeError(f"Audio conversion failed: {str(e)}")
+    
+    # For video files, extract audio
     wav_path = media_path.with_suffix(".wav")
 
     if wav_path.exists():

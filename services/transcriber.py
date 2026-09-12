@@ -139,7 +139,7 @@ def transcribe_file(
     model_name: str | None = None,
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> TranscriptionResult:
-    """Transcribe a media file to text using Whisper backend."""
+    """Transcribe a media file to text using faster-whisper backend."""
     if model_name is None:
         model_name = settings.whisper_model_default
 
@@ -163,16 +163,27 @@ def transcribe_file(
         device = "cuda" if gpu_available else "cpu"
 
     try:
-        import whisper  # type: ignore
-        logger.info("Using openai-whisper backend...")
+        from faster_whisper import WhisperModel
+        logger.info("Using faster-whisper backend...")
         if progress_callback:
             progress_callback(10, "Loading AI model...")
 
-        model = whisper.load_model(
-            model_name,
-            device=device,
-            download_root=os.path.expanduser("~/.cache/whisper"),
-        )
+        model = None
+        fw_model_path = _resolve_faster_whisper_model_path(model_name)
+
+        if gpu_available:
+            try:
+                model = WhisperModel(fw_model_path, device="cuda", compute_type="float16")
+                logger.info("faster-whisper initialized with CUDA (compute_type=float16)")
+            except Exception as cuda_init_err:
+                logger.warning(
+                    "faster-whisper CUDA unavailable/unsupported; falling back to CPU",
+                    exc_info=cuda_init_err,
+                )
+
+        if model is None:
+            model = WhisperModel(fw_model_path, device="cpu", compute_type="int8")
+            logger.info("faster-whisper initialized with CPU (compute_type=int8)")
 
         if progress_callback:
             progress_callback(20, "Extracting audio from video...")
@@ -182,33 +193,51 @@ def transcribe_file(
         if progress_callback:
             progress_callback(40, "Processing audio (this may take a while)...")
 
-        raw = model.transcribe(str(wav_path), fp16=(device == "cuda"))
+        transcribe_input = wav_path
+        logger.info(f"Transcribing from: {transcribe_input}")
+
+        raw_segments, info = model.transcribe(str(transcribe_input))
+
+        total_duration = info.duration
+        text_parts: list[str] = []
+        captured_segments: list[TranscriptionSegment] = []
+
+        for seg in raw_segments:
+            seg_text = seg.text.strip()
+            text_parts.append(seg_text)
+            captured_segments.append(
+                TranscriptionSegment(start=float(seg.start), end=float(seg.end), text=seg_text)
+            )
+            if progress_callback and total_duration > 0:
+                current_percent = 40 + int((seg.end / total_duration) * 55)
+                current_percent = min(95, current_percent)
+                progress_callback(
+                    current_percent,
+                    f"Transcribing: {int(seg.end)}s / {int(total_duration)}s",
+                )
+
+        text = " ".join(t for t in text_parts if t).strip()
 
         if progress_callback:
             progress_callback(100, "Transcription complete!")
 
-        logger.info(f"Transcription complete: device={device} model={model_name}")
-
-        segments = [
-            TranscriptionSegment(
-                start=float(seg.get("start", 0.0)),
-                end=float(seg.get("end", 0.0)),
-                text=seg.get("text", "").strip(),
-            )
-            for seg in raw.get("segments", [])
-        ]
-
         if wav_path.exists():
             wav_path.unlink()
 
+        logger.info(
+            f"backend=faster-whisper "
+            f"device={'cuda' if (gpu_available and getattr(model, 'device', 'cpu') == 'cuda') else 'cpu'} "
+            f"compute_type={'float16' if gpu_available else 'int8'} "
+            f"model={model_name}"
+        )
         return TranscriptionResult(
-            text=raw.get("text", "").strip(),
-            segments=segments,
-            language=raw.get("language"),
+            text=text,
+            segments=captured_segments,
+            language=getattr(info, "language", None),
         )
 
     except ImportError:
-        raise RuntimeError("openai-whisper not installed. Please install it with: pip install openai-whisper")
+        raise RuntimeError("faster-whisper not installed. Please install it with: pip install faster-whisper")
     except Exception as e:
         logger.exception("Transcription failed")
         raise RuntimeError(f"Transcription failed: {str(e)}")

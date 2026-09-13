@@ -172,8 +172,19 @@ def transcribe_file(
     media_path: Path,
     model_name: str | None = None,
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    language: str | None = None,
 ) -> TranscriptionResult:
-    """Transcribe a media file to text using faster-whisper backend."""
+    """Transcribe a media file to text using faster-whisper backend with ASR fixes.
+
+    Args:
+        media_path: Path to the media file
+        model_name: Whisper model size (base, small, medium)
+        progress_callback: Optional function for progress updates
+        language: Explicit language code (e.g., 'en', 'es', 'fr') or None for auto-detect
+
+    Returns:
+        TranscriptionResult with text, segments, and detected language
+    """
     if model_name is None:
         model_name = settings.whisper_model_default
 
@@ -198,7 +209,7 @@ def transcribe_file(
 
     try:
         from faster_whisper import WhisperModel
-        logger.info("Using faster-whisper backend...")
+        logger.info("Using faster-whisper backend with ASR optimizations...")
         if progress_callback:
             progress_callback(10, "Loading AI model...")
 
@@ -220,17 +231,43 @@ def transcribe_file(
             logger.info("faster-whisper initialized with CPU (compute_type=int8)")
 
         if progress_callback:
-            progress_callback(20, "Extracting audio from video...")
+            progress_callback(20, "Extracting audio from media...")
 
         wav_path = _extract_audio_to_wav(media_path)
 
         if progress_callback:
-            progress_callback(40, "Processing audio (this may take a while)...")
+            progress_callback(40, "Processing audio with ASR optimizations...")
 
         transcribe_input = wav_path
         logger.info(f"Transcribing from: {transcribe_input}")
 
-        raw_segments, info = model.transcribe(str(transcribe_input))
+        # ASR Optimization: Explicit language constraint to avoid code-switching issues
+        language_param = language if language else None
+
+        # ASR Optimization: Repetition penalty to prevent hallucination loops
+        repetition_penalty = 1.2
+
+        # ASR Optimization: Temperature for better handling of uncertain segments
+        temperature = 0.0
+
+        # ASR Optimization: No speech threshold to handle low-confidence audio
+        no_speech_threshold = 0.6
+
+        # ASR Optimization: Prompt biasing for common English terms if language is English
+        initial_prompt = None
+        if language == "en" or language is None:
+            # Common words to bias towards for better accuracy
+            initial_prompt = "This is a transcription of spoken English language content."
+
+        raw_segments, info = model.transcribe(
+            str(transcribe_input),
+            language=language_param,
+            repetition_penalty=repetition_penalty,
+            temperature=temperature,
+            no_speech_threshold=no_speech_threshold,
+            initial_prompt=initial_prompt,
+            word_timestamps=True  # Better for chunk alignment
+        )
 
         total_duration = info.duration
         text_parts: list[str] = []
@@ -238,10 +275,20 @@ def transcribe_file(
 
         for seg in raw_segments:
             seg_text = seg.text.strip()
+            
+            # ASR Fix: Filter out very short segments that might be hallucinations
+            if len(seg_text) < 2:
+                continue
+                
+            # ASR Fix: Skip segments that are just repeating punctuation
+            if seg_text in [".", ",", "!", "?", "...", "...."]:
+                continue
+                
             text_parts.append(seg_text)
             captured_segments.append(
                 TranscriptionSegment(start=float(seg.start), end=float(seg.end), text=seg_text)
             )
+            
             if progress_callback and total_duration > 0:
                 current_percent = 40 + int((seg.end / total_duration) * 55)
                 current_percent = min(95, current_percent)
@@ -258,16 +305,18 @@ def transcribe_file(
         if wav_path.exists():
             wav_path.unlink()
 
+        detected_language = getattr(info, "language", language)
         logger.info(
             f"backend=faster-whisper "
             f"device={'cuda' if (gpu_available and getattr(model, 'device', 'cpu') == 'cuda') else 'cpu'} "
             f"compute_type={'float16' if gpu_available else 'int8'} "
-            f"model={model_name}"
+            f"model={model_name} "
+            f"language={detected_language}"
         )
         return TranscriptionResult(
             text=text,
             segments=captured_segments,
-            language=getattr(info, "language", None),
+            language=detected_language,
         )
 
     except ImportError:

@@ -186,9 +186,10 @@ with st.sidebar:
     st.markdown("### Instructions")
     st.markdown("""
     1. **Upload** a video or audio file
-    2. **Click** "Start Transcription"
-    3. **Wait** for AI processing
-    4. **Download** your transcript in multiple formats
+    2. **Select** language (optional)
+    3. **Click** "Start Transcription"
+    4. **Wait** for AI processing
+    5. **Download** your transcript in multiple formats
     """)
 
     st.markdown("---")
@@ -208,6 +209,32 @@ with st.sidebar:
         index=1,
         help="Larger models are more accurate but slower"
     )
+
+    language = st.selectbox(
+        "Language",
+        ["Auto-detect", "English", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Russian", "Japanese", "Korean", "Chinese", "Hindi", "Arabic"],
+        index=0,
+        help="Select language for better accuracy. Auto-detect works best for mixed content."
+    )
+    
+    # Map language selection to language codes
+    language_map = {
+        "Auto-detect": None,
+        "English": "en",
+        "Spanish": "es", 
+        "French": "fr",
+        "German": "de",
+        "Italian": "it",
+        "Portuguese": "pt",
+        "Dutch": "nl",
+        "Russian": "ru",
+        "Japanese": "ja",
+        "Korean": "ko",
+        "Chinese": "zh",
+        "Hindi": "hi",
+        "Arabic": "ar"
+    }
+    selected_language = language_map[language]
 
     st.markdown("---")
     st.markdown("### Developer")
@@ -269,7 +296,7 @@ if uploaded_file:
             status_text.text("Extracting audio from media...")
             progress_bar.progress(20)
 
-            result = transcribe_file(tmp_path, model_size, progress_callback)
+            result = transcribe_file(tmp_path, model_size, progress_callback, selected_language)
 
             status_text.text("Transcription complete!")
             progress_bar.progress(100)

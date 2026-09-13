@@ -309,23 +309,30 @@ if st.session_state.transcription_result:
     # Transcript display
     st.markdown("### Transcript")
 
-    # Transcript viewer
-    transcript_text = st.text_area(
-        "Full Transcript",
-        result.text,
-        height=300,
-        key="transcript_text"
-    )
+    # Transcript viewer - ensure text is properly displayed
+    if result.text:
+        st.text_area(
+            "Full Transcript",
+            result.text,
+            height=300,
+            key="transcript_text",
+            help="Click on the transcript text to select and copy, or use the copy button below"
+        )
+    else:
+        st.warning("No transcript text available")
 
     # Timestamped segments
-    with st.expander("View Timestamped Segments", expanded=True):
-        for segment in result.segments:
-            timestamp = f"[{int(segment.start // 3600):02d}:{int((segment.start % 3600) // 60):02d}:{int(segment.start % 60):02d}]"
-            st.markdown(f"""
-            <div class="transcript-container">
-                <span class="timestamp">{timestamp}</span> {segment.text}
-            </div>
-            """, unsafe_allow_html=True)
+    if result.segments:
+        with st.expander("View Timestamped Segments", expanded=True):
+            for segment in result.segments:
+                timestamp = f"[{int(segment.start // 3600):02d}:{int((segment.start % 3600) // 60):02d}:{int(segment.start % 60):02d}]"
+                st.markdown(f"""
+                <div class="transcript-container">
+                    <span class="timestamp">{timestamp}</span> {segment.text}
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.warning("No timestamped segments available")
 
     # Action buttons
     st.markdown("---")
@@ -334,36 +341,8 @@ if st.session_state.transcription_result:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        # Copy to clipboard using JavaScript
-        copy_button_id = f"copy-btn-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        st.markdown(f"""
-        <button id="{copy_button_id}" onclick="copyToClipboard()" style="
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            padding: 0.5rem 1.5rem;
-            border-radius: 0.5rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            width: 100%;
-        ">Copy Transcript</button>
-        <textarea id="transcript-text" style="display:none;">{result.text}</textarea>
-        <script>
-        function copyToClipboard() {{
-            const text = document.getElementById('transcript-text').value;
-            navigator.clipboard.writeText(text).then(() => {{
-                const btn = document.getElementById('{copy_button_id}');
-                btn.textContent = 'Copied!';
-                setTimeout(() => {{
-                    btn.textContent = 'Copy Transcript';
-                }}, 2000);
-            }}).catch(err => {{
-                console.error('Failed to copy:', err);
-            }});
-        }}
-        </script>
-        """, unsafe_allow_html=True)
+        # Use Streamlit's built-in copy functionality
+        st.code(result.text, language=None)
 
     with col2:
         # TXT download

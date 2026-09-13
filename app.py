@@ -142,6 +142,8 @@ if 'current_file' not in st.session_state:
     st.session_state.current_file = None
 if 'processing' not in st.session_state:
     st.session_state.processing = False
+if 'selected_language' not in st.session_state:
+    st.session_state.selected_language = None
 
 # Header
 st.markdown("""
@@ -214,27 +216,9 @@ with st.sidebar:
         "Language",
         ["Auto-detect", "English", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Russian", "Japanese", "Korean", "Chinese", "Hindi", "Arabic"],
         index=0,
-        help="Select language for better accuracy. Auto-detect works best for mixed content."
+        help="Select language for better accuracy. Auto-detect works best for mixed content.",
+        key="language_selector"
     )
-    
-    # Map language selection to language codes
-    language_map = {
-        "Auto-detect": None,
-        "English": "en",
-        "Spanish": "es", 
-        "French": "fr",
-        "German": "de",
-        "Italian": "it",
-        "Portuguese": "pt",
-        "Dutch": "nl",
-        "Russian": "ru",
-        "Japanese": "ja",
-        "Korean": "ko",
-        "Chinese": "zh",
-        "Hindi": "hi",
-        "Arabic": "ar"
-    }
-    selected_language = language_map[language]
 
     st.markdown("---")
     st.markdown("### Developer")
@@ -274,6 +258,25 @@ if uploaded_file:
     if start_button and not st.session_state.processing:
         st.session_state.processing = True
         st.session_state.current_file = uploaded_file
+        # Get language from sidebar at the time of button click
+        language_map = {
+            "Auto-detect": None,
+            "English": "en",
+            "Spanish": "es", 
+            "French": "fr",
+            "German": "de",
+            "Italian": "it",
+            "Portuguese": "pt",
+            "Dutch": "nl",
+            "Russian": "ru",
+            "Japanese": "ja",
+            "Korean": "ko",
+            "Chinese": "zh",
+            "Hindi": "hi",
+            "Arabic": "ar"
+        }
+        selected_language = language_map[language]
+        st.session_state.selected_language = selected_language
 
         # Create temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
@@ -296,7 +299,7 @@ if uploaded_file:
             status_text.text("Extracting audio from media...")
             progress_bar.progress(20)
 
-            result = transcribe_file(tmp_path, model_size, progress_callback, selected_language)
+            result = transcribe_file(tmp_path, model_size, progress_callback, st.session_state.selected_language)
 
             status_text.text("Transcription complete!")
             progress_bar.progress(100)
@@ -312,12 +315,12 @@ if uploaded_file:
 
         except Exception as e:
             st.session_state.processing = False
-            st.error(f"❌ Transcription failed: {str(e)}")
+            st.error(f"Transcription failed: {str(e)}")
             if tmp_path.exists():
                 tmp_path.unlink()
 
 elif st.session_state.processing:
-    st.info("⏳ Processing in progress...")
+    st.info("Processing in progress...")
 
 # Display transcription results
 if st.session_state.transcription_result:

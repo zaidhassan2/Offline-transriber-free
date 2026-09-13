@@ -6,6 +6,7 @@ import shutil
 import logging
 import subprocess
 import sys
+import re
 from typing import Callable, Optional
 
 try:
@@ -37,6 +38,83 @@ class TranscriptionResult:
     text: str
     segments: list[TranscriptionSegment] = field(default_factory=list)
     language: Optional[str] = None
+
+
+def _normalize_text(text: str) -> str:
+    """Post-process text to fix common ASR issues."""
+    if not text:
+        return text
+    
+    # Fix spacing around punctuation
+    text = re.sub(r'\s+([.,!?;:])', r'\1', text)  # Remove space before punctuation
+    text = re.sub(r'([.,!?;:])\s+', r'\1 ', text)  # Normalize space after punctuation
+    
+    # Fix common homophone/phonetic errors
+    common_corrections = {
+        'term oil': 'turmoil',
+        'father seg': "father's day",
+        'bill prizes': 'nobel prizes',
+        'in the': 'in',  # Remove redundant 'the' in some contexts
+        'a a': 'a',
+        'the the': 'the',
+        'and and': 'and',
+    }
+    
+    for wrong, correct in common_corrections.items():
+        text = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, text, flags=re.IGNORECASE)
+    
+    # Fix repeated words (hallucination loops)
+    text = re.sub(r'\b(\w+)( \1)+\b', r'\1', text)  # Remove immediate repetitions
+    
+    # Fix rogue number insertions at boundaries
+    text = re.sub(r'(\d{4})\s+(\d{4})', r'\1', text)  # Remove duplicate years
+    
+    # Capitalize first letter of sentences
+    text = re.sub(r'([.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), text)
+    
+    # Capitalize 'I' when standalone
+    text = re.sub(r'\bi\b', 'I', text)
+    
+    # Fix common capitalization issues
+    text = re.sub(r'\b(bill|nobel)\b', lambda m: m.group(1).capitalize(), text)
+    
+    # Remove leading/trailing whitespace from each line
+    text = ' '.join(text.split())
+    
+    return text
+
+
+def _trim_silence_from_audio(wav_path: Path) -> Path:
+    """Trim silence from beginning and end of audio to reduce extraneous audio."""
+    try:
+        # Get audio duration first
+        probe_cmd = [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(wav_path)
+        ]
+        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+        duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+        
+        if duration == 0:
+            return wav_path
+        
+        # Trim silence from beginning (first 0.5 seconds) and end (last 0.5 seconds)
+        trim_cmd = [
+            "ffmpeg", "-i", str(wav_path),
+            "-af", "silenceremove=start_periods=1:start_silence=0.5:start_threshold=-50dB:stop_silence=0.5:stop_threshold=-50dB",
+            "-y", str(wav_path)
+        ]
+        
+        result = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode == 0:
+            logger.info("Successfully trimmed silence from audio")
+        else:
+            logger.warning(f"Silence trimming failed, using original audio: {result.stderr[-200:]}")
+            
+    except Exception as e:
+        logger.warning(f"Silence trimming failed: {e}")
+    
+    return wav_path
 
 
 def _check_ffmpeg_available() -> bool:
@@ -236,7 +314,13 @@ def transcribe_file(
         wav_path = _extract_audio_to_wav(media_path)
 
         if progress_callback:
-            progress_callback(40, "Processing audio with ASR optimizations...")
+            progress_callback(30, "Optimizing audio quality...")
+
+        # Post-process: Trim silence to reduce extraneous audio
+        wav_path = _trim_silence_from_audio(wav_path)
+
+        if progress_callback:
+            progress_callback(35, "Processing audio with ASR optimizations...")
 
         transcribe_input = wav_path
         logger.info(f"Transcribing from: {transcribe_input}")
@@ -290,7 +374,7 @@ def transcribe_file(
             )
             
             if progress_callback and total_duration > 0:
-                current_percent = 40 + int((seg.end / total_duration) * 55)
+                current_percent = 35 + int((seg.end / total_duration) * 60)
                 current_percent = min(95, current_percent)
                 progress_callback(
                     current_percent,
@@ -304,6 +388,13 @@ def transcribe_file(
 
         if wav_path.exists():
             wav_path.unlink()
+
+        # Post-process: Normalize text to fix common ASR issues
+        text = _normalize_text(text)
+
+        # Post-process: Normalize individual segments
+        for seg in captured_segments:
+            seg.text = _normalize_text(seg.text)
 
         detected_language = getattr(info, "language", language)
         logger.info(

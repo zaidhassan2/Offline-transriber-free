@@ -342,10 +342,13 @@ if uploaded_file:
         # Create temporary file with proper cleanup
         tmp_path = None
         try:
-            # Stream directly to disk to prevent RAM bloat
-            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
-                tmp_file.write(uploaded_file.getbuffer())
-                tmp_path = Path(tmp_file.name)
+            # Step 1: Stream directly to disk to prevent RAM bloat
+            with st.spinner("Uploading file to disk..."):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
+                    tmp_file.write(uploaded_file.getbuffer())
+                    tmp_path = Path(tmp_file.name)
+                    file_size_mb = tmp_path.stat().st_size / (1024 * 1024)
+                    st.info(f"File uploaded: {file_size_mb:.2f} MB")
 
             # Progress indicators
             progress_bar = st.progress(0)
@@ -362,16 +365,21 @@ if uploaded_file:
             status_text.text("Extracting audio from media...")
             progress_bar.progress(20)
 
-            with st.spinner("Processing media... This may take several minutes for 40+ min files."):
-                result = transcribe_file(
-                    tmp_path, 
-                    model_size, 
-                    progress_callback, 
-                    st.session_state.selected_language,
-                    custom_vocabulary_list,
-                    custom_corrections_dict,
-                    combined_keywords
-                )
+            try:
+                with st.spinner("Processing media... This may take several minutes for 40+ min files."):
+                    result = transcribe_file(
+                        tmp_path, 
+                        model_size, 
+                        progress_callback, 
+                        st.session_state.selected_language,
+                        custom_vocabulary_list,
+                        custom_corrections_dict,
+                        combined_keywords
+                    )
+            except Exception as transcribe_error:
+                st.error(f"Transcription failed: {str(transcribe_error)}")
+                st.error(f"Error type: {type(transcribe_error).__name__}")
+                raise
 
             status_text.text("Transcription complete!")
             progress_bar.progress(100)

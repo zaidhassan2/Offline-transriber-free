@@ -393,6 +393,9 @@ def transcribe_file(
         if cache_key not in _model_cache:
             fw_model_path = _resolve_faster_whisper_model_path(model_name)
             
+            if progress_callback:
+                progress_callback(15, "Initializing model architecture...")
+            
             if gpu_available:
                 try:
                     _model_cache[cache_key] = WhisperModel(fw_model_path, device="cuda", compute_type="float16")
@@ -409,11 +412,26 @@ def transcribe_file(
                 logger.info("faster-whisper initialized with CPU (compute_type=int8)")
         
         model = _model_cache[cache_key]
+        
+        if progress_callback:
+            progress_callback(20, "Model loaded successfully")
 
         if progress_callback:
-            progress_callback(20, "Extracting audio from media...")
+            progress_callback(25, "Checking audio streams...")
 
-        wav_path = _extract_audio_to_wav(media_path)
+        # Check for audio stream presence
+        if not _probe_audio_stream(media_path):
+            raise RuntimeError("No audio stream found in the media file. Please ensure the file contains audio.")
+
+        if progress_callback:
+            progress_callback(30, "Extracting audio from media...")
+
+        try:
+            wav_path = _extract_audio_to_wav(media_path)
+            if progress_callback:
+                progress_callback(35, "Audio extraction complete")
+        except Exception as audio_error:
+            raise RuntimeError(f"Audio extraction failed: {str(audio_error)}") from audio_error
 
         if progress_callback:
             progress_callback(30, "Optimizing audio quality...")

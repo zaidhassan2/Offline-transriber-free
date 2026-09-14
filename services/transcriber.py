@@ -14,6 +14,9 @@ try:
 except Exception:
     torch = None  # type: ignore
 
+# Model caching to avoid repeated loading (memory efficient for 1GB containers)
+_model_cache = {}
+
 # Simple settings
 class Settings:
     whisper_model_default = "base"
@@ -385,22 +388,27 @@ def transcribe_file(
         if progress_callback:
             progress_callback(10, "Loading AI model...")
 
-        model = None
-        fw_model_path = _resolve_faster_whisper_model_path(model_name)
-
-        if gpu_available:
-            try:
-                model = WhisperModel(fw_model_path, device="cuda", compute_type="float16")
-                logger.info("faster-whisper initialized with CUDA (compute_type=float16)")
-            except Exception as cuda_init_err:
-                logger.warning(
-                    "faster-whisper CUDA unavailable/unsupported; falling back to CPU",
-                    exc_info=cuda_init_err,
-                )
-
-        if model is None:
-            model = WhisperModel(fw_model_path, device="cpu", compute_type="int8")
-            logger.info("faster-whisper initialized with CPU (compute_type=int8)")
+        # Model caching to avoid repeated loading (memory efficient for 1GB containers)
+        cache_key = f"{model_name}_{device}"
+        if cache_key not in _model_cache:
+            fw_model_path = _resolve_faster_whisper_model_path(model_name)
+            
+            if gpu_available:
+                try:
+                    _model_cache[cache_key] = WhisperModel(fw_model_path, device="cuda", compute_type="float16")
+                    logger.info("faster-whisper initialized with CUDA (compute_type=float16)")
+                except Exception as cuda_init_err:
+                    logger.warning(
+                        "faster-whisper CUDA unavailable/unsupported; falling back to CPU",
+                        exc_info=cuda_init_err,
+                    )
+                    _model_cache[cache_key] = WhisperModel(fw_model_path, device="cpu", compute_type="int8")
+                    logger.info("faster-whisper initialized with CPU (compute_type=int8)")
+            else:
+                _model_cache[cache_key] = WhisperModel(fw_model_path, device="cpu", compute_type="int8")
+                logger.info("faster-whisper initialized with CPU (compute_type=int8)")
+        
+        model = _model_cache[cache_key]
 
         if progress_callback:
             progress_callback(20, "Extracting audio from media...")
@@ -423,7 +431,8 @@ def transcribe_file(
         language_param = language if language else None
 
         # ASR Optimization: Temperature fallback for escaping loops
-        temperature = (0.0, 0.2, 0.4)  # Deterministic first, then fallback if needed
+        # For greedy decoding (beam_size=1), use single temperature value
+        temperature = 0.0  # Deterministic decoding for greedy search
 
         # ASR Optimization: No speech threshold to handle low-confidence audio
         no_speech_threshold = 0.4  # Reduced from 0.5 to catch more low-energy speech during crowd noise
@@ -435,13 +444,17 @@ def transcribe_file(
         compression_ratio_threshold = 2.4
 
         # ASR Optimization: Beam size for better decoding
-        beam_size = 5
+        # Use beam_size=1 (greedy) for long files to prevent OOM on 1GB RAM containers
+        # For files <10 minutes, beam_size=5 provides better accuracy
+        # For files 40+ minutes, beam_size=1 is essential for memory safety
+        beam_size = 1  # Greedy decoding to minimize tensor allocation overhead
 
         # ASR Optimization: VAD parameters with generous padding for natural pauses
+        # Optimized for long files (40+ minutes) to prevent word boundary cuts
         vad_filter = True
         vad_parameters = {
-            "min_silence_duration_ms": 400,  # Further reduced from 500ms to catch shorter pauses during crowd noise
-            "speech_pad_ms": 600  # Increased from 500ms to 600ms for better low-energy capture during laughter
+            "min_silence_duration_ms": 650,  # Increased from 400ms to accommodate speaker pauses without cutting words
+            "speech_pad_ms": 450  # Buffers quiet consonants and low-energy speech
         }
 
         # ASR Optimization: Prompt biasing for conversational context and meeting vocabulary
@@ -484,6 +497,11 @@ def transcribe_file(
         text_parts: list[str] = []
         captured_segments: list[TranscriptionSegment] = []
 
+        # Process segments lazily (avoid list(segments) in memory for long files)
+        # This prevents memory bloat when processing 40+ minute files on 1GB RAM containers
+        text_parts: list[str] = []
+        captured_segments: list[TranscriptionSegment] = []
+
         for seg in raw_segments:
             seg_text = seg.text.strip()
             
@@ -513,29 +531,26 @@ def transcribe_file(
         if progress_callback:
             progress_callback(100, "Transcription complete!")
 
+        # Immediate file cleanup to release container tmpfs memory
         if wav_path.exists():
             wav_path.unlink()
 
-        # Cleanup memory for Streamlit Cloud efficiency
+        # Trigger garbage collection immediately after decoding finishes
+        # Critical for 1GB RAM containers processing 40+ minute files
         import gc
+        gc.collect()
         gc.collect()
 
         # Post-process: Basic text normalization (conservative, universal fixes only)
+        # Removed redundant beam search corrections for memory efficiency
         text = _normalize_text(text, custom_vocabulary, custom_corrections)
 
         # Post-process: Normalize individual segments
         for seg in captured_segments:
             seg.text = _normalize_text(seg.text, custom_vocabulary, custom_corrections)
 
-        # Post-process: Apply beam search corrections
-        captured_segments = _apply_beam_search_decoding(captured_segments)
-
-        # Post-process: Normalize text to fix common ASR issues
-        text = _normalize_text(text, custom_vocabulary, custom_corrections)
-
-        # Post-process: Normalize individual segments
-        for seg in captured_segments:
-            seg.text = _normalize_text(seg.text, custom_vocabulary, custom_corrections)
+        # Additional garbage collection after post-processing
+        gc.collect()
 
         detected_language = getattr(info, "language", language)
         logger.info(

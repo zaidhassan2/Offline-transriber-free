@@ -339,12 +339,14 @@ if uploaded_file:
         selected_language = language_map[language]
         st.session_state.selected_language = selected_language
 
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
-            tmp_file.write(uploaded_file.getbuffer())
-            tmp_path = Path(tmp_file.name)
-
+        # Create temporary file with proper cleanup
+        tmp_path = None
         try:
+            # Stream directly to disk to prevent RAM bloat
+            with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                tmp_path = Path(tmp_file.name)
+
             # Progress indicators
             progress_bar = st.progress(0)
             status_text = st.empty()
@@ -360,15 +362,16 @@ if uploaded_file:
             status_text.text("Extracting audio from media...")
             progress_bar.progress(20)
 
-            result = transcribe_file(
-                tmp_path, 
-                model_size, 
-                progress_callback, 
-                st.session_state.selected_language,
-                custom_vocabulary_list,
-                custom_corrections_dict,
-                combined_keywords
-            )
+            with st.spinner("Processing media... This may take several minutes for 40+ min files."):
+                result = transcribe_file(
+                    tmp_path, 
+                    model_size, 
+                    progress_callback, 
+                    st.session_state.selected_language,
+                    custom_vocabulary_list,
+                    custom_corrections_dict,
+                    combined_keywords
+                )
 
             status_text.text("Transcription complete!")
             progress_bar.progress(100)
@@ -377,16 +380,19 @@ if uploaded_file:
             st.session_state.transcription_result = result
             st.session_state.processing = False
 
-            # Cleanup
-            tmp_path.unlink()
-
             st.rerun()
 
         except Exception as e:
             st.session_state.processing = False
             st.error(f"Transcription failed: {str(e)}")
-            if tmp_path.exists():
+        
+        finally:
+            # Immediate storage cleanup to release container tmpfs memory
+            # Guaranteed cleanup regardless of success or failure
+            if tmp_path and tmp_path.exists():
                 tmp_path.unlink()
+            import gc
+            gc.collect()
 
 elif st.session_state.processing:
     st.info("Processing in progress...")

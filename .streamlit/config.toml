@@ -6,9 +6,13 @@ secondaryBackgroundColor = "#ffffff"
 textColor = "#111827"
 font = "sans serif"
 
+[server]
+maxUploadSize = 300
+enableCORS = false
+enableXsrfProtection = false
+
 [client]
 showErrorDetails = false
-maxUploadSize = 2000
 
 [logger]
 level = "info"

@@ -258,22 +258,6 @@ with st.sidebar:
         placeholder="Enter speaker names, meeting topics, or technical terms (e.g., Steve Carell, Q4 Review, Budget)",
         help="Add keywords to improve recognition of proper names and meeting-specific terminology."
     )
-    
-    # Extract keywords from filename for automatic topic extraction
-    filename_keywords = None
-    if uploaded_file:
-        filename = uploaded_file.name
-        # Extract first 100 characters from filename as context
-        filename_keywords = filename[:100].replace('_', ' ').replace('-', ' ')
-    
-    # Combine user keywords with filename keywords
-    all_keywords = []
-    if keywords_input.strip():
-        all_keywords.append(keywords_input.strip())
-    if filename_keywords:
-        all_keywords.append(filename_keywords)
-    
-    combined_keywords = " ".join(all_keywords) if all_keywords else None
 
     st.markdown("---")
     st.markdown("### Developer")
@@ -288,6 +272,23 @@ uploaded_file = st.file_uploader(
     type=['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'flac', 'ogg'],
     help="Supported video formats: MP4, MOV, AVI, MKV, WEBM. Supported audio formats: MP3, WAV, M4A, FLAC, OGG"
 )
+
+# Extract keywords from filename for automatic topic extraction (after file upload)
+filename_keywords = None
+if uploaded_file:
+    filename = uploaded_file.name
+    # Extract first 100 characters from filename as context
+    filename_keywords = filename[:100].replace('_', ' ').replace('-', ' ')
+
+# Combine user keywords with filename keywords
+combined_keywords = None
+if uploaded_file or keywords_input:
+    all_keywords = []
+    if keywords_input and keywords_input.strip():
+        all_keywords.append(keywords_input.strip())
+    if filename_keywords:
+        all_keywords.append(filename_keywords)
+    combined_keywords = " ".join(all_keywords) if all_keywords else None
 
 if uploaded_file:
     st.markdown(f"""

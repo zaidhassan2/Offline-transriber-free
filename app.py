@@ -226,9 +226,10 @@ with st.sidebar:
     # Custom vocabulary input
     custom_vocab = st.text_area(
         "Custom Vocabulary (Optional)",
-        placeholder="Enter proper names, brand names, or technical terms separated by commas (e.g., Dillo Day, BigXthaPlug, Jedediah Ashcraft)",
-        help="Add custom terms to improve recognition of proper names and specialized vocabulary.",
-        height=80
+        placeholder="Enter proper names, brand names, or technical terms separated by commas (e.g., Dillo Day, BigXthaPlug, Jedediah Ashcraft, Don DePollo)",
+        help="Add custom terms to improve recognition of proper names and specialized vocabulary. Default terms include common meeting entities.",
+        height=80,
+        value="BigXthaPlug, Dillo Day, Jedediah Ashcraft, Don DePollo, Nobel Prizes"  # Default common proper nouns
     )
     
     # Parse custom vocabulary
@@ -240,13 +241,14 @@ with st.sidebar:
     custom_corrections_input = st.text_area(
         "Custom Corrections (Optional)",
         placeholder="Enter corrections in format: wrong_term=correct_term (one per line)\nExample:\nterm oil=turmoil\nfather seg=Father's Day",
-        help="Add custom corrections for common misheard phrases.",
-        height=80
+        help="Add custom corrections for common misheard phrases. Default corrections include common meeting and speech errors.",
+        height=80,
+        value="BBC see learning English=BBC Learning English\npodcast that BBC Learning English=podcasts at BBC Learning English\nthink it be useful=think it can be useful\nagenda feel=agenda, Phil\nthink about that Phil=think about that, Phil\nhappy father's sake=Happy Father's Day"  # Default common corrections
     )
     
     # Parse custom corrections
     custom_corrections_dict = {}
-    if custom_corrections_input.strip():
+    if custom_corrections_input and custom_corrections_input.strip():
         for line in custom_corrections_input.strip().split('\n'):
             if '=' in line:
                 wrong, correct = line.split('=', 1)

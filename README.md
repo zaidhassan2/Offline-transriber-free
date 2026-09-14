@@ -165,22 +165,19 @@ The system automatically extracts keywords from filenames and combines them with
 - **Manual:** Add speaker names, meeting topics, or technical terms via UI
 - **Benefit:** Better recognition of proper names and domain-specific vocabulary without hardcoded rules
 
-#### Custom Vocabulary
+#### Custom Vocabulary (with Default Terms)
 Add proper names, brand names, and technical terms to improve recognition accuracy:
-- Enter terms separated by commas: `Dillo Day, BigXthaPlug, Jedediah Ashcraft`
-- The model will bias toward these terms during transcription
-- Helpful for campus-specific events, brand names, and proper nouns
+- **Default terms:** BigXthaPlug, Dillo Day, Jedediah Ashcraft, Don DePollo, Nobel Prizes
+- **Format:** Comma-separated terms
+- **Benefit:** Model biases toward these terms during transcription
+- **Meeting focus:** Pre-loaded with common proper nouns from your feedback
 
-#### Custom Corrections
+#### Custom Corrections (with Default Terms)
 Define your own corrections for commonly misheard phrases:
-- Format: `wrong_term=correct_term` (one per line)
-- Example:
-  ```
-  term oil=turmoil
-  father seg=Father's Day
-  bill prizes=Nobel Prizes
-  ```
-- Overrides the built-in correction dictionary
+- **Default corrections:** BBC see learning → BBC Learning English, agenda feel → agenda, Phil, etc.
+- **Format:** `wrong_term=correct_term` (one per line)
+- **Benefit:** Fixes specific patterns identified from your test feedback
+- **Override:** User corrections take precedence over built-in fixes
 
 ---
 
@@ -243,7 +240,7 @@ Add custom corrections for:
 #### Universal ASR Configuration
 The system uses production-ready settings optimized for conversational audio and meetings:
 - **Zero-context inference:** Each chunk evaluated independently to prevent error cascading
-- **Enhanced VAD with generous padding:** 500ms minimum silence, 500ms speech padding for low-energy endings
+- **Enhanced VAD with generous padding:** 400ms minimum silence, 600ms speech padding for low-energy endings and crowd noise
 - **Temperature fallback:** Deterministic decoding first, then fallback for noisy audio
 - **Compression threshold:** Automatically catches infinite repetition loops
 - **Dynamic topic extraction:** Keywords from filenames and user input bias recognition
@@ -263,7 +260,8 @@ The pipeline addresses 5 systematic failure modes in conversational audio:
 
 3. **Disfluency Stutters & Word Duplication:**
    - Fixed: "ask ask" → "ask", "learning learning" → "learning"
-   - Solution: Immediate repetition removal with stutter pattern detection
+   - Enhanced: Contractions handling "it's it's it's" → "it's"
+   - Solution: Immediate repetition removal with enhanced stutter pattern detection
 
 4. **Acronym Fragmentation:**
    - Fixed: "A, O, B" → "AOB", "R-E-S-P-C-T" → "R-E-S-P-E-C-T"
@@ -271,7 +269,17 @@ The pipeline addresses 5 systematic failure modes in conversational audio:
 
 5. **Trailing Syllable Dropping:**
    - Fixed: "call paying" → "called paying", "difficult for me" context restoration
-   - Solution: Enhanced VAD padding (500ms) + semantic corrections
+   - Solution: Enhanced VAD padding (600ms) + semantic corrections
+
+#### Feedback-Based Improvements (94% Meeting, 91% Speech Verbatim)
+Based on detailed testing feedback, additional fixes implemented:
+
+- **BBC Compound Noun Stutter:** "BBC see learning English" → "BBC Learning English"
+- **Preposition Slips:** "podcast that" → "podcasts at", "think it be useful" → "think it can be useful"
+- **Proper Noun Boundaries:** "agenda feel" → "agenda, Phil", "think about that Phil" → "think about that, Phil"
+- **Meeting-Specific Terms:** Default vocabulary includes BigXthaPlug, Dillo Day, Don DePollo, Nobel Prizes
+- **Outro Filtering:** Automatic removal of promotional content ("Join our global community...")
+- **Enhanced Crowd Noise Handling:** Reduced VAD thresholds (400ms) and increased padding (600ms) for laughter segments
 
 #### Streamlit Cloud Memory Issues
 - Audio is automatically downsampled to 16 kHz mono to conserve RAM

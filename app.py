@@ -251,6 +251,13 @@ with st.sidebar:
             if '=' in line:
                 wrong, correct = line.split('=', 1)
                 custom_corrections_dict[wrong.strip()] = correct.strip()
+    
+    # Silence trimming toggle (disabled by default to avoid clipping natural pauses)
+    enable_silence_trimming = st.checkbox(
+        "Trim Silence (Experimental)",
+        value=False,
+        help="Remove leading/trailing silence to reduce extraneous audio. Disabled by default to preserve natural pauses in speech, comedy timing, and dramatic content."
+    )
 
     st.markdown("---")
     st.markdown("### Developer")
@@ -337,7 +344,8 @@ if uploaded_file:
                 progress_callback, 
                 st.session_state.selected_language,
                 custom_vocabulary_list,
-                custom_corrections_dict
+                custom_corrections_dict,
+                enable_silence_trimming
             )
 
             status_text.text("Transcription complete!")

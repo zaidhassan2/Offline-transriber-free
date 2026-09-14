@@ -41,61 +41,46 @@ class TranscriptionResult:
 
 
 def _normalize_text(text: str, custom_vocabulary: list[str] = None, custom_corrections: dict[str, str] = None) -> str:
-    """Post-process text to fix common ASR issues with custom vocabulary support."""
+    """Post-process text to fix common ASR issues with conservative, context-aware corrections.
+    
+    Conservative approach to avoid false positives in other content genres.
+    """
     if not text:
         return text
     
-    # Apply custom corrections first (user-defined)
+    # Apply custom corrections first (user-defined - user's responsibility for domain-specific fixes)
     if custom_corrections:
         for wrong, correct in custom_corrections.items():
+            # More conservative: only replace exact word boundaries, case-insensitive
             text = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, text, flags=re.IGNORECASE)
     
-    # Fix spacing around punctuation
+    # FIX: Removed aggressive global replacements that could cause false positives
+    # Keeping only very conservative punctuation fixes that apply universally
+    
+    # Fix spacing around punctuation (universal fix)
     text = re.sub(r'\s+([.,!?;:])', r'\1', text)  # Remove space before punctuation
     text = re.sub(r'([.,!?;:])\s+', r'\1 ', text)  # Normalize space after punctuation
     
-    # Fix common homophone/phonetic errors
-    common_corrections = {
-        'term oil': 'turmoil',
-        'father seg': "father's day",
-        'bill prizes': 'nobel prizes',
-        'in the': 'in',  # Remove redundant 'the' in some contexts
-        'a a': 'a',
-        'the the': 'the',
-        'and and': 'and',
-        'to be me': 'to be mean',  # Trailing consonant dropout fix
-        'to with you': 'to be with you',  # Trailing consonant dropout fix
-        'is to be me': 'is to be mean',
-        'nonplust': 'nonplussed',
-    }
-    
-    for wrong, correct in common_corrections.items():
-        text = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, text, flags=re.IGNORECASE)
-    
-    # Fix repeated words (hallucination loops)
-    text = re.sub(r'\b(\w+)( \1)+\b', r'\1', text)  # Remove immediate repetitions
+    # Fix repeated words (hallucination loops) - conservative
+    text = re.sub(r'\b(\w+)( \1){2,}\b', r'\1', text)  # Only remove 3+ repetitions
     
     # Fix rogue number insertions at boundaries (e.g., "2025 2021")
     text = re.sub(r'(\d{4})\s+(\d{4})', r'\1', text)  # Remove duplicate years
-    text = re.sub(r'(\d{4})\s+(of \d{4})', r'\1 of \2', text)  # Fix "Class 2025 of 2025" -> "Class of 2025"
     
     # Capitalize first letter of sentences
     text = re.sub(r'([.!?]\s+)([a-z])', lambda m: m.group(1) + m.group(2).upper(), text)
     
-    # Capitalize 'I' when standalone
+    # Capitalize 'I' when standalone (universal fix)
     text = re.sub(r'\bi\b', 'I', text)
     
-    # Fix common capitalization issues
-    text = re.sub(r'\b(bill|nobel)\b', lambda m: m.group(1).capitalize(), text)
+    # Remove leading/trailing whitespace from each line
+    text = ' '.join(text.split())
     
     # Apply custom vocabulary biasing - capitalize custom terms
     if custom_vocabulary:
         for term in custom_vocabulary:
-            # Capitalize custom vocabulary terms when they appear
+            # Conservative: only capitalize if it appears as lowercase
             text = re.sub(r'\b' + re.escape(term.lower()) + r'\b', term, text, flags=re.IGNORECASE)
-    
-    # Remove leading/trailing whitespace from each line
-    text = ' '.join(text.split())
     
     return text
 
@@ -124,8 +109,15 @@ def _apply_beam_search_decoding(segments: list[TranscriptionSegment]) -> list[Tr
     return corrected_segments
 
 
-def _trim_silence_from_audio(wav_path: Path) -> Path:
-    """Trim silence from beginning and end of audio to reduce extraneous audio."""
+def _trim_silence_from_audio(wav_path: Path, enable_trim: bool = True) -> Path:
+    """Trim silence from beginning and end of audio to reduce extraneous audio.
+    
+    Uses conservative thresholds to avoid clipping natural pauses in speech.
+    Disabled by default to prevent legitimate speech loss.
+    """
+    if not enable_trim:
+        return wav_path
+        
     try:
         # Get audio duration first
         probe_cmd = [
@@ -138,16 +130,18 @@ def _trim_silence_from_audio(wav_path: Path) -> Path:
         if duration == 0:
             return wav_path
         
-        # Trim silence from beginning (first 0.5 seconds) and end (last 0.5 seconds)
+        # Use conservative thresholds to avoid clipping natural pauses
+        # 1.0s minimum silence threshold (vs 0.5s) to preserve comedic timing
+        # -50dB threshold to catch only true silence, not quiet speech
         trim_cmd = [
             "ffmpeg", "-i", str(wav_path),
-            "-af", "silenceremove=start_periods=1:start_silence=0.5:start_threshold=-50dB:stop_silence=0.5:stop_threshold=-50dB",
+            "-af", "silenceremove=start_periods=1:start_silence=1.0:start_threshold=-45dB:stop_silence=1.0:stop_threshold=-45dB",
             "-y", str(wav_path)
         ]
         
         result = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=60)
         if result.returncode == 0:
-            logger.info("Successfully trimmed silence from audio")
+            logger.info("Successfully trimmed silence from audio (conservative thresholds)")
         else:
             logger.warning(f"Silence trimming failed, using original audio: {result.stderr[-200:]}")
             
@@ -293,6 +287,7 @@ def transcribe_file(
     language: str | None = None,
     custom_vocabulary: list[str] = None,
     custom_corrections: dict[str, str] = None,
+    enable_silence_trimming: bool = False,
 ) -> TranscriptionResult:
     """Transcribe a media file to text using faster-whisper backend with ASR fixes.
 
@@ -303,6 +298,7 @@ def transcribe_file(
         language: Explicit language code (e.g., 'en', 'es', 'fr') or None for auto-detect
         custom_vocabulary: List of custom terms to bias recognition (e.g., proper names, brand names)
         custom_corrections: Dictionary of custom corrections for specific phrases
+        enable_silence_trimming: Whether to trim leading/trailing silence (disabled by default to preserve natural pauses)
 
     Returns:
         TranscriptionResult with text, segments, and detected language
@@ -360,8 +356,8 @@ def transcribe_file(
         if progress_callback:
             progress_callback(30, "Optimizing audio quality...")
 
-        # Post-process: Trim silence to reduce extraneous audio
-        wav_path = _trim_silence_from_audio(wav_path)
+        # Post-process: Trim silence to reduce extraneous audio (disabled by default to avoid clipping natural pauses)
+        wav_path = _trim_silence_from_audio(wav_path, enable_silence_trimming)
 
         if progress_callback:
             progress_callback(35, "Processing audio with ASR optimizations...")
@@ -380,6 +376,9 @@ def transcribe_file(
 
         # ASR Optimization: No speech threshold to handle low-confidence audio
         no_speech_threshold = 0.6
+
+        # ASR Optimization: condition_on_previous_text to prevent repetitive loops
+        condition_on_previous_text = False  # Disable to prevent loops without adding latency
 
         # ASR Optimization: Prompt biasing for common English terms if language is English
         initial_prompt = None
@@ -402,7 +401,8 @@ def transcribe_file(
             temperature=temperature,
             no_speech_threshold=no_speech_threshold,
             initial_prompt=initial_prompt,
-            word_timestamps=True  # Better for chunk alignment
+            word_timestamps=True,  # Better for chunk alignment
+            condition_on_previous_text=condition_on_previous_text  # Prevent repetitive loops
         )
 
         total_duration = info.duration

@@ -21,7 +21,8 @@ Developed by [Zaid Hassan](https://zaidhassan.me)
 * **ASR Optimizations:** Advanced post-processing to fix common transcription errors
 * **Custom Vocabulary:** Add proper names, brand names, and technical terms for better accuracy
 * **Custom Corrections:** Define your own phrase corrections for specific misheard words
-* **Silence Trimming:** Automatic removal of leading/trailing silence to reduce extraneous audio
+* **Memory Efficient:** Audio downsampled to 16 kHz mono for Streamlit Cloud compatibility
+* **Conservative Processing:** Disabled by default silence trimming to preserve natural pauses
 
 ---
 
@@ -173,6 +174,13 @@ Define your own corrections for commonly misheard phrases:
   ```
 - Overrides the built-in correction dictionary
 
+#### Silence Trimming (Experimental)
+- **Disabled by default** to preserve natural pauses in speech
+- Can be enabled for files with known extraneous outros
+- Uses conservative thresholds (1.0s minimum silence) to avoid clipping
+- **Warning:** May clip comedic timing, dramatic pauses, or soft-spoken endings
+- Only enable for content where silence trimming is clearly beneficial
+
 ---
 
 ## 🔒 Privacy & Security
@@ -215,7 +223,7 @@ If you're seeing common ASR errors, try these fixes:
 
 #### Common Misheard Words
 Add custom corrections for:
-- Phonetic errors: `term oil` → `turmoil`, `bill prizes` → `Nobel Prizes`
+- Phonetic errors: Use custom corrections for domain-specific terms
 - Proper names: Add campus-specific terms to custom vocabulary
 - Acronyms: Add brand names to custom vocabulary
 
@@ -223,12 +231,17 @@ Add custom corrections for:
 - Use a larger model (small or medium) for better context
 - Ensure audio quality is good (low background noise)
 - Try with explicit language selection instead of auto-detect
+- **Note:** Keep silence trimming disabled to preserve natural pauses
 
 #### Hallucination or Repetition
-- The app has built-in repetition penalties, but if issues persist:
-  - Try trimming silence from your audio file before upload
-  - Use a higher quality audio source
-  - Adjust the AI model size
+- The app has built-in repetition penalties and `condition_on_previous_text=False`
+- If issues persist, try a larger model for better context
+- Ensure audio quality is high (clean input source)
+
+#### Streamlit Cloud Memory Issues
+- Audio is automatically downsampled to 16 kHz mono to conserve RAM
+- Processing happens in chunks to avoid OOM crashes
+- For very long files (>15 minutes), consider local processing
 
 ---
 

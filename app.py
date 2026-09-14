@@ -349,6 +349,12 @@ if uploaded_file:
                     tmp_path = Path(tmp_file.name)
                     file_size_mb = tmp_path.stat().st_size / (1024 * 1024)
                     st.info(f"File uploaded: {file_size_mb:.2f} MB")
+                    
+                    # Warning for very large files
+                    if file_size_mb > 200:
+                        st.warning("⚠️ Large file detected (>200MB). Processing may take 10-20 minutes and could time out on free tier.")
+                    elif file_size_mb > 100:
+                        st.info("ℹ️ Large file detected (>100MB). Processing may take 5-10 minutes.")
 
             # Progress indicators
             progress_bar = st.progress(0)

@@ -429,18 +429,18 @@ def transcribe_file(
         try:
             wav_path = _extract_audio_to_wav(media_path)
             if progress_callback:
-                progress_callback(35, "Audio extraction complete")
+                progress_callback(40, "Audio extraction complete")
         except Exception as audio_error:
             raise RuntimeError(f"Audio extraction failed: {str(audio_error)}") from audio_error
 
         if progress_callback:
-            progress_callback(30, "Optimizing audio quality...")
+            progress_callback(45, "Optimizing audio quality...")
 
         # Post-process: Trim silence to reduce extraneous audio (VAD handles this now)
         wav_path = _trim_silence_from_audio(wav_path)
 
         if progress_callback:
-            progress_callback(35, "Processing audio with ASR optimizations...")
+            progress_callback(50, "Starting ASR transcription...")
 
         transcribe_input = wav_path
         logger.info(f"Transcribing from: {transcribe_input}")
@@ -471,8 +471,8 @@ def transcribe_file(
         # Optimized for long files (40+ minutes) to prevent word boundary cuts
         vad_filter = True
         vad_parameters = {
-            "min_silence_duration_ms": 650,  # Increased from 400ms to accommodate speaker pauses without cutting words
-            "speech_pad_ms": 450  # Buffers quiet consonants and low-energy speech
+            "min_silence_duration_ms": 800,  # Increased to 800ms for very long files to prevent aggressive chunking
+            "speech_pad_ms": 500  # Buffers quiet consonants and low-energy speech
         }
 
         # ASR Optimization: Prompt biasing for conversational context and meeting vocabulary
@@ -517,8 +517,6 @@ def transcribe_file(
 
         # Process segments lazily (avoid list(segments) in memory for long files)
         # This prevents memory bloat when processing 40+ minute files on 1GB RAM containers
-        text_parts: list[str] = []
-        captured_segments: list[TranscriptionSegment] = []
 
         for seg in raw_segments:
             seg_text = seg.text.strip()
@@ -537,17 +535,17 @@ def transcribe_file(
             )
             
             if progress_callback and total_duration > 0:
-                current_percent = 35 + int((seg.end / total_duration) * 60)
+                current_percent = 50 + int((seg.end / total_duration) * 45)  # 50-95% for transcription
                 current_percent = min(95, current_percent)
                 progress_callback(
                     current_percent,
-                    f"Transcribing: {int(seg.end)}s / {int(total_duration)}s",
+                    f"Transcribing: {int(seg.end)}s / {int(total_duration)}s ({current_percent}%)",
                 )
 
         text = " ".join(t for t in text_parts if t).strip()
 
         if progress_callback:
-            progress_callback(100, "Transcription complete!")
+            progress_callback(95, "Post-processing transcript...")
 
         # Immediate file cleanup to release container tmpfs memory
         if wav_path.exists():
@@ -557,6 +555,9 @@ def transcribe_file(
         # Critical for 1GB RAM containers processing 40+ minute files
         import gc
         gc.collect()
+
+        if progress_callback:
+            progress_callback(98, "Finalizing transcript...")
         gc.collect()
 
         # Post-process: Basic text normalization (conservative, universal fixes only)
@@ -569,6 +570,9 @@ def transcribe_file(
 
         # Additional garbage collection after post-processing
         gc.collect()
+
+        if progress_callback:
+            progress_callback(100, "Transcription complete!")
 
         detected_language = getattr(info, "language", language)
         logger.info(

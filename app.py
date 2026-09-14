@@ -352,9 +352,12 @@ if uploaded_file:
                     
                     # Warning for very large files
                     if file_size_mb > 200:
-                        st.warning("⚠️ Large file detected (>200MB). Processing may take 10-20 minutes and could time out on free tier.")
+                        st.warning("⚠️ Large file detected (>200MB). Processing may take 10-20 minutes and could time out on free tier. Using 'tiny' model for memory safety.")
+                        model_size = "tiny"  # Force tiny model for very large files
                     elif file_size_mb > 100:
-                        st.info("ℹ️ Large file detected (>100MB). Processing may take 5-10 minutes.")
+                        st.info("ℹ️ Large file detected (>100MB). Processing may take 5-10 minutes. Using 'base' model for balance.")
+                        if model_size == "medium":
+                            model_size = "base"  # Downgrade medium to base for large files
 
             # Progress indicators
             progress_bar = st.progress(0)

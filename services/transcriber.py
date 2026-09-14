@@ -497,19 +497,30 @@ def transcribe_file(
             else:
                 initial_prompt = keywords
 
-        raw_segments, info = model.transcribe(
-            str(transcribe_input),
-            language=language_param,
-            beam_size=beam_size,
-            temperature=temperature,
-            no_speech_threshold=no_speech_threshold,
-            initial_prompt=initial_prompt,
-            word_timestamps=True,  # Better for chunk alignment
-            condition_on_previous_text=condition_on_previous_text,  # Prevent error cascading
-            compression_ratio_threshold=compression_ratio_threshold,  # Guard against infinite loops
-            vad_filter=vad_filter,
-            vad_parameters=vad_parameters
-        )
+        try:
+            raw_segments, info = model.transcribe(
+                str(transcribe_input),
+                language=language_param,
+                beam_size=beam_size,
+                temperature=temperature,
+                no_speech_threshold=no_speech_threshold,
+                initial_prompt=initial_prompt,
+                word_timestamps=True,  # Better for chunk alignment
+                condition_on_previous_text=condition_on_previous_text,  # Prevent error cascading
+                compression_ratio_threshold=compression_ratio_threshold,  # Guard against infinite loops
+                vad_filter=vad_filter,
+                vad_parameters=vad_parameters
+            )
+        except Exception as transcribe_error:
+            logger.error(f"Transcription failed: {str(transcribe_error)}")
+            logger.error(f"Error type: {type(transcribe_error).__name__}")
+            # Provide more specific error messages for common issues
+            if "CUDA out of memory" in str(transcribe_error).lower() or "out of memory" in str(transcribe_error).lower():
+                raise RuntimeError("Out of memory during transcription. Try using a smaller model (tiny or base) or process locally with more RAM.") from transcribe_error
+            elif "timeout" in str(transcribe_error).lower():
+                raise RuntimeError("Transcription timeout. The file may be too large for cloud processing. Try processing locally.") from transcribe_error
+            else:
+                raise RuntimeError(f"ASR transcription failed: {str(transcribe_error)}") from transcribe_error
 
         total_duration = info.duration
         text_parts: list[str] = []
@@ -518,6 +529,9 @@ def transcribe_file(
         # Process segments lazily (avoid list(segments) in memory for long files)
         # This prevents memory bloat when processing 40+ minute files on 1GB RAM containers
 
+        segment_count = 0
+        max_segments = 10000  # Safety limit to prevent infinite loops
+        
         for seg in raw_segments:
             seg_text = seg.text.strip()
             
@@ -528,6 +542,12 @@ def transcribe_file(
             # ASR Fix: Skip segments that are just repeating punctuation
             if seg_text in [".", ",", "!", "?", "...", "...."]:
                 continue
+            
+            # Safety limit to prevent infinite loops or memory issues
+            segment_count += 1
+            if segment_count > max_segments:
+                logger.warning(f"Reached maximum segment limit ({max_segments}), stopping transcription")
+                break
                 
             text_parts.append(seg_text)
             captured_segments.append(

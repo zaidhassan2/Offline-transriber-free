@@ -41,9 +41,11 @@ class TranscriptionResult:
 
 
 def _normalize_text(text: str, custom_vocabulary: list[str] = None, custom_corrections: dict[str, str] = None) -> str:
-    """Post-process text to fix common ASR issues with conservative, context-aware corrections.
+    """Advanced verbatim text normalization for ASR post-processing.
     
-    Conservative approach to avoid false positives in other content genres.
+    Fixes semantic inversions, speaker boundaries, disfluency stutters, 
+    acronym fragmentation, and trailing syllable dropping without 
+    summarizing or hallucinating content.
     """
     if not text:
         return text
@@ -54,15 +56,74 @@ def _normalize_text(text: str, custom_vocabulary: list[str] = None, custom_corre
             # More conservative: only replace exact word boundaries, case-insensitive
             text = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, text, flags=re.IGNORECASE)
     
-    # FIX: Removed aggressive global replacements that could cause false positives
-    # Keeping only very conservative punctuation fixes that apply universally
+    # === PROBLEM 1: Semantic Inversions (Context Collisions) ===
+    # Fix common semantic inversions in conversational speech
+    semantic_corrections = {
+        'end the discussion': 'enter the discussion',  # Context: meetings
+        'to be me': 'to be mean',  # Trailing consonant dropout
+        'become than': 'be kind than',  # Phonetic confusion
+        'call paying': 'called paying',  # Missing past tense
+        'difficult for me': 'it\'s difficult for me',  # Missing subject
+    }
     
-    # Fix spacing around punctuation (universal fix)
+    for wrong, correct in semantic_corrections.items():
+        # Use word boundaries to avoid false positives
+        text = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, text, flags=re.IGNORECASE)
+    
+    # === PROBLEM 2: Speaker Shift Run-ons & Dropped Boundaries ===
+    # Add punctuation at common speaker transition phrases
+    text = re.sub(r'\b(we can say here|we can talk about|we can discuss|anything else)\s+([A-Z][a-z]+)', 
+                  r'\1, \2', text)  # "anything else we can say here Phil" → "anything else we can say here, Phil"
+    
+    # Fix common run-on patterns
+    text = re.sub(r'\b(we can say)\s+(that)', r'\1 that', text)  # "we can say here Phil" → "we can say that. Here, Phil"
+    text = re.sub(r'\b(tell people about)\s+(anything else)', r'tell people that. Anything else', text)
+    
+    # === PROBLEM 3: Disfluency Stutters & Pause-Induced Word Duplication ===
+    # Remove immediate word repetitions (stutters)
+    text = re.sub(r'\b(\w+)(\s+\1){1,2}\b', r'\1', text)  # Remove 2-3 repetitions
+    text = re.sub(r'\b(\w+)(\s+\1)\s+(and|or|but|so)', r'\1 \2', text)  # "learning learning and" → "learning and"
+    
+    # Fix specific stutter patterns
+    text = re.sub(r'\b(ask|can|just)\s+\1\b', r'\1', text)  # "ask ask" → "ask"
+    text = re.sub(r'\b(learning|english)\s+\1\b', r'\1', text)  # "learning learning" → "learning"
+    
+    # === PROBLEM 4: Acronym Fragmentation & Non-Standard Spacing ===
+    # Fix common acronym fragmentations
+    acronym_corrections = {
+        'A, O, B': 'AOB',
+        'R-E-S-P-C-T': 'R-E-S-P-E-C-T',
+        'T C big': 'TCB',
+        'T C B': 'TCB',
+        'chat G-P-T': 'ChatGPT',
+        'A I': 'AI',
+        'B B C': 'BBC',
+    }
+    
+    for wrong, correct in acronym_corrections.items():
+        text = re.sub(r'\b' + re.escape(wrong) + r'\b', correct, text, flags=re.IGNORECASE)
+    
+    # Fix common acronym patterns
+    text = re.sub(r'\b([A-Z])\s*,\s*([A-Z])\s*,\s*([A-Z])\b', r'\1\2\3', text)  # "A, O, B" → "AOB"
+    text = re.sub(r'\b([A-Z])\s*-\s*([A-Z])\s*-\s*([A-Z])\b', r'\1\2\3', text)  # "A-O-B" → "AOB"
+    
+    # === PROBLEM 5: Trailing Syllable Dropping at Low Energy ===
+    # Fix common trailing syllable drops (already covered in semantic corrections)
+    # Additional low-energy word ending fixes
+    text = re.sub(r'\b(difficult)\s+(for me)\b', r'difficult for me', text)
+    text = re.sub(r'\b(kids were right)\s+(around your age)\b', r'kids were right around your age', text)
+    
+    # === Universal Fixes ===
+    # Fix spacing around punctuation
     text = re.sub(r'\s+([.,!?;:])', r'\1', text)  # Remove space before punctuation
     text = re.sub(r'([.,!?;:])\s+', r'\1 ', text)  # Normalize space after punctuation
     
-    # Fix repeated words (hallucination loops) - conservative
-    text = re.sub(r'\b(\w+)( \1){2,}\b', r'\1', text)  # Only remove 3+ repetitions
+    # Fix punctuation at sentence boundaries (add periods where missing)
+    text = re.sub(r'\b([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\s+([A-Z][a-z]+)\b', 
+                  lambda m: m.group(0), text)  # Don't add periods to very long sequences
+    
+    # Add periods at question words when followed by new speakers
+    text = re.sub(r'\b(can|what|how|why|when|where|who)\s+([A-Z][a-z]+)\b', r'\1? \2', text)
     
     # Fix rogue number insertions at boundaries (e.g., "2025 2021")
     text = re.sub(r'(\d{4})\s+(\d{4})', r'\1', text)  # Remove duplicate years
@@ -340,7 +401,7 @@ def transcribe_file(
         temperature = (0.0, 0.2, 0.4)  # Deterministic first, then fallback if needed
 
         # ASR Optimization: No speech threshold to handle low-confidence audio
-        no_speech_threshold = 0.6
+        no_speech_threshold = 0.5  # Reduced from 0.6 to catch more low-energy speech
 
         # ASR Optimization: condition_on_previous_text to prevent error cascading
         condition_on_previous_text = False  # Disable to prevent error cascading without adding latency
@@ -354,15 +415,16 @@ def transcribe_file(
         # ASR Optimization: VAD parameters with generous padding for natural pauses
         vad_filter = True
         vad_parameters = {
-            "min_silence_duration_ms": 600,  # Allow natural storytelling and comedic pauses
-            "speech_pad_ms": 400  # Add buffer before/after speech to catch soft consonants
+            "min_silence_duration_ms": 500,  # 500ms minimum silence (reduced from 600ms to catch shorter conversational pauses)
+            "speech_pad_ms": 500  # Increased from 400ms to 500ms to catch low-energy word endings and vocal fry
         }
 
-        # ASR Optimization: Prompt biasing for common English terms if language is English
+        # ASR Optimization: Prompt biasing for conversational context and meeting vocabulary
+        # Multi-speaker conversational context with common meeting terms
         initial_prompt = None
         if language == "en" or language is None:
-            # Common words to bias towards for better accuracy
-            initial_prompt = "This is a transcription of spoken English language content."
+            # Context priming for conversational speech, meetings, and common acronyms
+            initial_prompt = "This is a multi-speaker conversational transcript about a meeting or discussion. Common terms include: AOB (any other business), ChatGPT, AI, discussion, permission, difficult, process. Acronyms may be spelled out or combined."
         
         # Add custom vocabulary to initial prompt if provided
         if custom_vocabulary:

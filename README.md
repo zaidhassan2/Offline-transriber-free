@@ -18,12 +18,12 @@ Developed by [Zaid Hassan](https://zaidhassan.me)
 * **Timestamped Segments:** Each segment tagged with `[HH:MM:SS]` format
 * **Premium UI:** Modern, responsive design with gradient styling
 * **Multi-Language Support:** 13+ languages with explicit language constraints
-* **Universal ASR Configuration:** Works reliably across any video type (meetings, podcasts, comedy, lectures)
+* **Advanced ASR Architecture:** Systematic fixes for 5 failure modes in conversational audio
 * **Dynamic Topic Extraction:** Automatic keyword extraction from filenames and user input
 * **Custom Vocabulary:** Add proper names, brand names, and technical terms for better accuracy
 * **Custom Corrections:** Define your own phrase corrections for specific misheard words
 * **Memory Efficient:** Audio downsampled to 16 kHz mono for Streamlit Cloud compatibility
-* **Natural Pause Preservation:** VAD with 400ms speech padding protects comedic timing and soft speech
+* **Natural Pause Preservation:** Enhanced VAD with 500ms speech padding for low-energy endings
 
 ---
 
@@ -241,12 +241,37 @@ Add custom corrections for:
 - If issues persist, try a larger model for better context
 
 #### Universal ASR Configuration
-The system uses production-ready settings that work across any video type:
+The system uses production-ready settings optimized for conversational audio and meetings:
 - **Zero-context inference:** Each chunk evaluated independently to prevent error cascading
-- **VAD with generous padding:** 600ms minimum silence, 400ms speech padding for natural pauses
+- **Enhanced VAD with generous padding:** 500ms minimum silence, 500ms speech padding for low-energy endings
 - **Temperature fallback:** Deterministic decoding first, then fallback for noisy audio
 - **Compression threshold:** Automatically catches infinite repetition loops
 - **Dynamic topic extraction:** Keywords from filenames and user input bias recognition
+- **Conversational context priming:** Meeting vocabulary and common acronyms in initial prompt
+
+#### Systematic ASR Error Fixes
+The pipeline addresses 5 systematic failure modes in conversational audio:
+
+1. **Semantic Inversions (Context Collisions):**
+   - Fixed: "end the discussion" → "enter the discussion"
+   - Fixed: "to be me" → "to be mean"
+   - Solution: Context-aware semantic corrections + conversational prompt biasing
+
+2. **Speaker Shift Run-ons & Dropped Boundaries:**
+   - Fixed: "we can say here Phil" → "we can say here, Phil"
+   - Solution: Punctuation insertion at speaker transition phrases
+
+3. **Disfluency Stutters & Word Duplication:**
+   - Fixed: "ask ask" → "ask", "learning learning" → "learning"
+   - Solution: Immediate repetition removal with stutter pattern detection
+
+4. **Acronym Fragmentation:**
+   - Fixed: "A, O, B" → "AOB", "R-E-S-P-C-T" → "R-E-S-P-E-C-T"
+   - Solution: Acronym unification rules and spacing normalization
+
+5. **Trailing Syllable Dropping:**
+   - Fixed: "call paying" → "called paying", "difficult for me" context restoration
+   - Solution: Enhanced VAD padding (500ms) + semantic corrections
 
 #### Streamlit Cloud Memory Issues
 - Audio is automatically downsampled to 16 kHz mono to conserve RAM

@@ -162,6 +162,9 @@ except ImportError as e:
     st.error(f"❌ Failed to import transcription services: {e}")
     st.stop()
 
+# Initialize uploaded_file globally to prevent NameError
+uploaded_file = None
+
 # Helper functions for export formats
 def create_srt_content(segments):
     """Create SRT subtitle format content."""
@@ -274,10 +277,6 @@ uploaded_file = st.file_uploader(
     type=['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'flac', 'ogg'],
     help="Supported video formats: MP4, MOV, AVI, MKV, WEBM. Supported audio formats: MP3, WAV, M4A, FLAC, OGG"
 )
-
-# Safety check: ensure uploaded_file is defined before use
-if 'uploaded_file' not in locals():
-    uploaded_file = None
 
 # Extract keywords from filename for automatic topic extraction (after file upload)
 filename_keywords = None

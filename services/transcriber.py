@@ -110,44 +110,12 @@ def _apply_beam_search_decoding(segments: list[TranscriptionSegment]) -> list[Tr
 
 
 def _trim_silence_from_audio(wav_path: Path, enable_trim: bool = True) -> Path:
-    """Trim silence from beginning and end of audio to reduce extraneous audio.
+    """Disabled - VAD with speech padding is now used instead for better natural pause preservation.
     
-    Uses conservative thresholds to avoid clipping natural pauses in speech.
-    Disabled by default to prevent legitimate speech loss.
+    VAD with 400ms speech padding provides better protection for natural pauses,
+    comedic timing, and soft-spoken endings than FFmpeg-based silence trimming.
     """
-    if not enable_trim:
-        return wav_path
-        
-    try:
-        # Get audio duration first
-        probe_cmd = [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", str(wav_path)
-        ]
-        result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
-        duration = float(result.stdout.strip()) if result.stdout.strip() else 0
-        
-        if duration == 0:
-            return wav_path
-        
-        # Use conservative thresholds to avoid clipping natural pauses
-        # 1.0s minimum silence threshold (vs 0.5s) to preserve comedic timing
-        # -50dB threshold to catch only true silence, not quiet speech
-        trim_cmd = [
-            "ffmpeg", "-i", str(wav_path),
-            "-af", "silenceremove=start_periods=1:start_silence=1.0:start_threshold=-45dB:stop_silence=1.0:stop_threshold=-45dB",
-            "-y", str(wav_path)
-        ]
-        
-        result = subprocess.run(trim_cmd, capture_output=True, text=True, timeout=60)
-        if result.returncode == 0:
-            logger.info("Successfully trimmed silence from audio (conservative thresholds)")
-        else:
-            logger.warning(f"Silence trimming failed, using original audio: {result.stderr[-200:]}")
-            
-    except Exception as e:
-        logger.warning(f"Silence trimming failed: {e}")
-    
+    # Always return original - VAD handles silence detection properly
     return wav_path
 
 
@@ -287,7 +255,7 @@ def transcribe_file(
     language: str | None = None,
     custom_vocabulary: list[str] = None,
     custom_corrections: dict[str, str] = None,
-    enable_silence_trimming: bool = False,
+    keywords: str = None,
 ) -> TranscriptionResult:
     """Transcribe a media file to text using faster-whisper backend with ASR fixes.
 
@@ -298,7 +266,7 @@ def transcribe_file(
         language: Explicit language code (e.g., 'en', 'es', 'fr') or None for auto-detect
         custom_vocabulary: List of custom terms to bias recognition (e.g., proper names, brand names)
         custom_corrections: Dictionary of custom corrections for specific phrases
-        enable_silence_trimming: Whether to trim leading/trailing silence (disabled by default to preserve natural pauses)
+        keywords: Optional keywords from filename or user input for dynamic topic extraction
 
     Returns:
         TranscriptionResult with text, segments, and detected language
@@ -356,8 +324,8 @@ def transcribe_file(
         if progress_callback:
             progress_callback(30, "Optimizing audio quality...")
 
-        # Post-process: Trim silence to reduce extraneous audio (disabled by default to avoid clipping natural pauses)
-        wav_path = _trim_silence_from_audio(wav_path, enable_silence_trimming)
+        # Post-process: Trim silence to reduce extraneous audio (VAD handles this now)
+        wav_path = _trim_silence_from_audio(wav_path)
 
         if progress_callback:
             progress_callback(35, "Processing audio with ASR optimizations...")
@@ -368,17 +336,27 @@ def transcribe_file(
         # ASR Optimization: Explicit language constraint to avoid code-switching issues
         language_param = language if language else None
 
-        # ASR Optimization: Repetition penalty to prevent hallucination loops
-        repetition_penalty = 1.2
-
-        # ASR Optimization: Temperature for better handling of uncertain segments
-        temperature = 0.0
+        # ASR Optimization: Temperature fallback for escaping loops
+        temperature = (0.0, 0.2, 0.4)  # Deterministic first, then fallback if needed
 
         # ASR Optimization: No speech threshold to handle low-confidence audio
         no_speech_threshold = 0.6
 
-        # ASR Optimization: condition_on_previous_text to prevent repetitive loops
-        condition_on_previous_text = False  # Disable to prevent loops without adding latency
+        # ASR Optimization: condition_on_previous_text to prevent error cascading
+        condition_on_previous_text = False  # Disable to prevent error cascading without adding latency
+
+        # ASR Optimization: Compression ratio threshold to catch infinite loops
+        compression_ratio_threshold = 2.4
+
+        # ASR Optimization: Beam size for better decoding
+        beam_size = 5
+
+        # ASR Optimization: VAD parameters with generous padding for natural pauses
+        vad_filter = True
+        vad_parameters = {
+            "min_silence_duration_ms": 600,  # Allow natural storytelling and comedic pauses
+            "speech_pad_ms": 400  # Add buffer before/after speech to catch soft consonants
+        }
 
         # ASR Optimization: Prompt biasing for common English terms if language is English
         initial_prompt = None
@@ -393,16 +371,26 @@ def transcribe_file(
                 initial_prompt += " " + vocab_prompt
             else:
                 initial_prompt = vocab_prompt
+        
+        # Add keywords for dynamic topic extraction if provided
+        if keywords:
+            if initial_prompt:
+                initial_prompt += " " + keywords
+            else:
+                initial_prompt = keywords
 
         raw_segments, info = model.transcribe(
             str(transcribe_input),
             language=language_param,
-            repetition_penalty=repetition_penalty,
+            beam_size=beam_size,
             temperature=temperature,
             no_speech_threshold=no_speech_threshold,
             initial_prompt=initial_prompt,
             word_timestamps=True,  # Better for chunk alignment
-            condition_on_previous_text=condition_on_previous_text  # Prevent repetitive loops
+            condition_on_previous_text=condition_on_previous_text,  # Prevent error cascading
+            compression_ratio_threshold=compression_ratio_threshold,  # Guard against infinite loops
+            vad_filter=vad_filter,
+            vad_parameters=vad_parameters
         )
 
         total_duration = info.duration
@@ -440,6 +428,17 @@ def transcribe_file(
 
         if wav_path.exists():
             wav_path.unlink()
+
+        # Cleanup memory for Streamlit Cloud efficiency
+        import gc
+        gc.collect()
+
+        # Post-process: Basic text normalization (conservative, universal fixes only)
+        text = _normalize_text(text, custom_vocabulary, custom_corrections)
+
+        # Post-process: Normalize individual segments
+        for seg in captured_segments:
+            seg.text = _normalize_text(seg.text, custom_vocabulary, custom_corrections)
 
         # Post-process: Apply beam search corrections
         captured_segments = _apply_beam_search_decoding(captured_segments)

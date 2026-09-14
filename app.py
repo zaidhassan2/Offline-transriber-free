@@ -252,12 +252,28 @@ with st.sidebar:
                 wrong, correct = line.split('=', 1)
                 custom_corrections_dict[wrong.strip()] = correct.strip()
     
-    # Silence trimming toggle (disabled by default to avoid clipping natural pauses)
-    enable_silence_trimming = st.checkbox(
-        "Trim Silence (Experimental)",
-        value=False,
-        help="Remove leading/trailing silence to reduce extraneous audio. Disabled by default to preserve natural pauses in speech, comedy timing, and dramatic content."
+    # Keywords / Speaker Names (for dynamic topic extraction)
+    keywords_input = st.text_input(
+        "Keywords / Speaker Names (Optional)",
+        placeholder="Enter speaker names, meeting topics, or technical terms (e.g., Steve Carell, Q4 Review, Budget)",
+        help="Add keywords to improve recognition of proper names and meeting-specific terminology."
     )
+    
+    # Extract keywords from filename for automatic topic extraction
+    filename_keywords = None
+    if uploaded_file:
+        filename = uploaded_file.name
+        # Extract first 100 characters from filename as context
+        filename_keywords = filename[:100].replace('_', ' ').replace('-', ' ')
+    
+    # Combine user keywords with filename keywords
+    all_keywords = []
+    if keywords_input.strip():
+        all_keywords.append(keywords_input.strip())
+    if filename_keywords:
+        all_keywords.append(filename_keywords)
+    
+    combined_keywords = " ".join(all_keywords) if all_keywords else None
 
     st.markdown("---")
     st.markdown("### Developer")
@@ -345,7 +361,7 @@ if uploaded_file:
                 st.session_state.selected_language,
                 custom_vocabulary_list,
                 custom_corrections_dict,
-                enable_silence_trimming
+                combined_keywords
             )
 
             status_text.text("Transcription complete!")

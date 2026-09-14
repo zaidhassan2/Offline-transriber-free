@@ -18,11 +18,12 @@ Developed by [Zaid Hassan](https://zaidhassan.me)
 * **Timestamped Segments:** Each segment tagged with `[HH:MM:SS]` format
 * **Premium UI:** Modern, responsive design with gradient styling
 * **Multi-Language Support:** 13+ languages with explicit language constraints
-* **ASR Optimizations:** Advanced post-processing to fix common transcription errors
+* **Universal ASR Configuration:** Works reliably across any video type (meetings, podcasts, comedy, lectures)
+* **Dynamic Topic Extraction:** Automatic keyword extraction from filenames and user input
 * **Custom Vocabulary:** Add proper names, brand names, and technical terms for better accuracy
 * **Custom Corrections:** Define your own phrase corrections for specific misheard words
 * **Memory Efficient:** Audio downsampled to 16 kHz mono for Streamlit Cloud compatibility
-* **Conservative Processing:** Disabled by default silence trimming to preserve natural pauses
+* **Natural Pause Preservation:** VAD with 400ms speech padding protects comedic timing and soft speech
 
 ---
 
@@ -149,13 +150,20 @@ streamlit run app.py
 1. **Upload:** Choose a video file (MP4, MOV, AVI, MKV, WEBM) or audio file (MP3, WAV, M4A, FLAC, OGG)
 2. **Select Model:** Choose AI model size (tiny, base, small, medium)
 3. **Select Language:** Choose language for better accuracy (English, Spanish, French, etc.)
-4. **Add Custom Vocabulary:** (Optional) Enter proper names, brand names, or technical terms
-5. **Add Custom Corrections:** (Optional) Define phrase corrections for misheard words
-6. **Transcribe:** Click "Start Transcription" button
-7. **Wait:** Watch the progress as AI processes your video
-8. **Download:** Get your transcript in multiple formats
+4. **Add Keywords:** (Optional) Enter speaker names, meeting topics, or technical terms for dynamic topic extraction
+5. **Add Custom Vocabulary:** (Optional) Enter proper names, brand names, or technical terms
+6. **Add Custom Corrections:** (Optional) Define phrase corrections for misheard words
+7. **Transcribe:** Click "Start Transcription" button
+8. **Wait:** Watch the progress as AI processes your video
+9. **Download:** Get your transcript in multiple formats
 
 ### Advanced Features
+
+#### Dynamic Topic Extraction
+The system automatically extracts keywords from filenames and combines them with user input:
+- **Automatic:** Filename "ENGLISH SPEECH STEVE CARELL" → "English Speech Steve Carell" added to prompt
+- **Manual:** Add speaker names, meeting topics, or technical terms via UI
+- **Benefit:** Better recognition of proper names and domain-specific vocabulary without hardcoded rules
 
 #### Custom Vocabulary
 Add proper names, brand names, and technical terms to improve recognition accuracy:
@@ -173,13 +181,6 @@ Define your own corrections for commonly misheard phrases:
   bill prizes=Nobel Prizes
   ```
 - Overrides the built-in correction dictionary
-
-#### Silence Trimming (Experimental)
-- **Disabled by default** to preserve natural pauses in speech
-- Can be enabled for files with known extraneous outros
-- Uses conservative thresholds (1.0s minimum silence) to avoid clipping
-- **Warning:** May clip comedic timing, dramatic pauses, or soft-spoken endings
-- Only enable for content where silence trimming is clearly beneficial
 
 ---
 
@@ -231,16 +232,26 @@ Add custom corrections for:
 - Use a larger model (small or medium) for better context
 - Ensure audio quality is good (low background noise)
 - Try with explicit language selection instead of auto-detect
-- **Note:** Keep silence trimming disabled to preserve natural pauses
+- **VAD with 400ms padding** automatically preserves natural pauses
 
 #### Hallucination or Repetition
-- The app has built-in repetition penalties and `condition_on_previous_text=False`
+- The app has `condition_on_previous_text=False` to prevent error cascading
+- Temperature fallback (0.0, 0.2, 0.4) for escaping loops
+- Compression ratio threshold (2.4) catches infinite loops
 - If issues persist, try a larger model for better context
-- Ensure audio quality is high (clean input source)
+
+#### Universal ASR Configuration
+The system uses production-ready settings that work across any video type:
+- **Zero-context inference:** Each chunk evaluated independently to prevent error cascading
+- **VAD with generous padding:** 600ms minimum silence, 400ms speech padding for natural pauses
+- **Temperature fallback:** Deterministic decoding first, then fallback for noisy audio
+- **Compression threshold:** Automatically catches infinite repetition loops
+- **Dynamic topic extraction:** Keywords from filenames and user input bias recognition
 
 #### Streamlit Cloud Memory Issues
 - Audio is automatically downsampled to 16 kHz mono to conserve RAM
 - Processing happens in chunks to avoid OOM crashes
+- Memory cleanup after transcription with garbage collection
 - For very long files (>15 minutes), consider local processing
 
 ---

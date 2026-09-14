@@ -158,8 +158,8 @@ sys.path.append(str(Path(__file__).parent))
 
 try:
     from services.transcriber import transcribe_file, TranscriptionResult
-except ImportError:
-    st.error("❌ Failed to import transcription services. Please ensure all dependencies are installed.")
+except ImportError as e:
+    st.error(f"❌ Failed to import transcription services: {e}")
     st.stop()
 
 # Helper functions for export formats

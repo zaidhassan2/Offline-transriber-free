@@ -221,6 +221,38 @@ with st.sidebar:
     )
 
     st.markdown("---")
+    st.markdown("### Advanced Settings")
+    
+    # Custom vocabulary input
+    custom_vocab = st.text_area(
+        "Custom Vocabulary (Optional)",
+        placeholder="Enter proper names, brand names, or technical terms separated by commas (e.g., Dillo Day, BigXthaPlug, Jedediah Ashcraft)",
+        help="Add custom terms to improve recognition of proper names and specialized vocabulary.",
+        height=80
+    )
+    
+    # Parse custom vocabulary
+    custom_vocabulary_list = None
+    if custom_vocab.strip():
+        custom_vocabulary_list = [term.strip() for term in custom_vocab.split(',') if term.strip()]
+    
+    # Custom corrections input
+    custom_corrections_input = st.text_area(
+        "Custom Corrections (Optional)",
+        placeholder="Enter corrections in format: wrong_term=correct_term (one per line)\nExample:\nterm oil=turmoil\nfather seg=Father's Day",
+        help="Add custom corrections for common misheard phrases.",
+        height=80
+    )
+    
+    # Parse custom corrections
+    custom_corrections_dict = {}
+    if custom_corrections_input.strip():
+        for line in custom_corrections_input.strip().split('\n'):
+            if '=' in line:
+                wrong, correct = line.split('=', 1)
+                custom_corrections_dict[wrong.strip()] = correct.strip()
+
+    st.markdown("---")
     st.markdown("### Developer")
     st.markdown("Developed by [Zaid Hassan](https://zaidhassan.me)")
 
@@ -299,7 +331,14 @@ if uploaded_file:
             status_text.text("Extracting audio from media...")
             progress_bar.progress(20)
 
-            result = transcribe_file(tmp_path, model_size, progress_callback, st.session_state.selected_language)
+            result = transcribe_file(
+                tmp_path, 
+                model_size, 
+                progress_callback, 
+                st.session_state.selected_language,
+                custom_vocabulary_list,
+                custom_corrections_dict
+            )
 
             status_text.text("Transcription complete!")
             progress_bar.progress(100)

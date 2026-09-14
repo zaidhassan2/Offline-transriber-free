@@ -17,6 +17,11 @@ Developed by [Zaid Hassan](https://zaidhassan.me)
 * **Multiple Export Formats:** Download as `.txt`, `.srt`, `.docx` (text-based), `.pdf` (text-based)
 * **Timestamped Segments:** Each segment tagged with `[HH:MM:SS]` format
 * **Premium UI:** Modern, responsive design with gradient styling
+* **Multi-Language Support:** 13+ languages with explicit language constraints
+* **ASR Optimizations:** Advanced post-processing to fix common transcription errors
+* **Custom Vocabulary:** Add proper names, brand names, and technical terms for better accuracy
+* **Custom Corrections:** Define your own phrase corrections for specific misheard words
+* **Silence Trimming:** Automatic removal of leading/trailing silence to reduce extraneous audio
 
 ---
 
@@ -140,21 +145,33 @@ streamlit run app.py
 
 ## 📖 Usage
 
-1. **Upload:** Choose a video file (MP4, MOV, AVI, MKV, WEBM)
+1. **Upload:** Choose a video file (MP4, MOV, AVI, MKV, WEBM) or audio file (MP3, WAV, M4A, FLAC, OGG)
 2. **Select Model:** Choose AI model size (tiny, base, small, medium)
-3. **Transcribe:** Click "Start Transcription" button
-4. **Wait:** Watch the progress as AI processes your video
-5. **Download:** Get your transcript in multiple formats
+3. **Select Language:** Choose language for better accuracy (English, Spanish, French, etc.)
+4. **Add Custom Vocabulary:** (Optional) Enter proper names, brand names, or technical terms
+5. **Add Custom Corrections:** (Optional) Define phrase corrections for misheard words
+6. **Transcribe:** Click "Start Transcription" button
+7. **Wait:** Watch the progress as AI processes your video
+8. **Download:** Get your transcript in multiple formats
 
-**Key Features:**
+### Advanced Features
 
-* 📹 **Video Upload:** Drag & drop or select video files
-* 🎯 **Model Selection:** Choose accuracy vs speed trade-off
-* 📊 **Progress Tracking:** Real-time status updates
-* 📝 **Transcript View:** Full text with editable text area
-* 🕐 **Timestamped Segments:** Expandable view with `[HH:MM:SS]` format
-* 💾 **Multiple Downloads:** TXT, SRT, DOCX, PDF formats
-* 📋 **Copy Function:** One-click text copying
+#### Custom Vocabulary
+Add proper names, brand names, and technical terms to improve recognition accuracy:
+- Enter terms separated by commas: `Dillo Day, BigXthaPlug, Jedediah Ashcraft`
+- The model will bias toward these terms during transcription
+- Helpful for campus-specific events, brand names, and proper nouns
+
+#### Custom Corrections
+Define your own corrections for commonly misheard phrases:
+- Format: `wrong_term=correct_term` (one per line)
+- Example:
+  ```
+  term oil=turmoil
+  father seg=Father's Day
+  bill prizes=Nobel Prizes
+  ```
+- Overrides the built-in correction dictionary
 
 ---
 
@@ -192,6 +209,26 @@ pip install -r requirements.txt
 - Check the [Streamlit Cloud documentation](https://docs.streamlit.io/)
 - Ensure all dependencies are in requirements.txt
 - Verify the main file is set to `app.py`
+
+### Transcription Accuracy Issues
+If you're seeing common ASR errors, try these fixes:
+
+#### Common Misheard Words
+Add custom corrections for:
+- Phonetic errors: `term oil` → `turmoil`, `bill prizes` → `Nobel Prizes`
+- Proper names: Add campus-specific terms to custom vocabulary
+- Acronyms: Add brand names to custom vocabulary
+
+#### Missing Words or Truncated Sentences
+- Use a larger model (small or medium) for better context
+- Ensure audio quality is good (low background noise)
+- Try with explicit language selection instead of auto-detect
+
+#### Hallucination or Repetition
+- The app has built-in repetition penalties, but if issues persist:
+  - Try trimming silence from your audio file before upload
+  - Use a higher quality audio source
+  - Adjust the AI model size
 
 ---
 

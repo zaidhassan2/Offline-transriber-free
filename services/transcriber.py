@@ -198,6 +198,130 @@ def _apply_beam_search_decoding(segments: list[TranscriptionSegment]) -> list[Tr
     return corrected_segments
 
 
+def _trim_silence_from_audio(wav_path: Path) -> Path:
+    """Disabled - VAD with speech padding handles silence detection properly.
+    
+    VAD with generous padding provides better protection for natural pauses,
+    comedic timing, and soft-spoken endings than FFmpeg-based silence trimming.
+    """
+    # Always return original - VAD handles silence detection properly
+    return wav_path
+
+
+def _chunk_audio_file(wav_path: Path, chunk_duration_minutes: int = 10) -> list[tuple[Path, float, float]]:
+    """Split audio file into chunks for memory-efficient processing.
+    
+    Args:
+        wav_path: Path to the WAV file
+        chunk_duration_minutes: Duration of each chunk in minutes (default 10)
+    
+    Returns:
+        List of tuples: (chunk_path, start_time, end_time)
+    """
+    chunks = []
+    
+    # Get audio duration
+    probe_cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(wav_path)
+    ]
+    result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+    total_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+    
+    if total_duration == 0:
+        return [(wav_path, 0.0, 0.0)]
+    
+    chunk_duration = chunk_duration_minutes * 60  # Convert to seconds
+    num_chunks = int(total_duration / chunk_duration) + 1
+    
+    for i in range(num_chunks):
+        start_time = i * chunk_duration
+        end_time = min((i + 1) * chunk_duration, total_duration)
+        
+        if start_time >= total_duration:
+            break
+        
+        chunk_path = wav_path.parent / f"{wav_path.stem}_chunk_{i}.wav"
+        
+        # Extract chunk using FFmpeg
+        cmd = [
+            "ffmpeg", "-i", str(wav_path),
+            "-ss", str(start_time),
+            "-to", str(end_time),
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "-y",
+            str(chunk_path)
+        ]
+        
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            chunks.append((chunk_path, start_time, end_time))
+            logger.info(f"Created chunk {i+1}/{num_chunks}: {start_time:.0f}s - {end_time:.0f}s")
+        except Exception as e:
+            logger.warning(f"Failed to create chunk {i+1}: {e}")
+    
+    return chunks
+
+
+def _chunk_audio_file(wav_path: Path, chunk_duration_minutes: int = 10) -> list[tuple[Path, float, float]]:
+    """Split audio file into chunks for memory-efficient processing.
+    
+    Args:
+        wav_path: Path to the WAV file
+        chunk_duration_minutes: Duration of each chunk in minutes (default 10)
+    
+    Returns:
+        List of tuples: (chunk_path, start_time, end_time)
+    """
+    chunks = []
+    
+    # Get audio duration
+    probe_cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(wav_path)
+    ]
+    result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+    total_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+    
+    if total_duration == 0:
+        return [(wav_path, 0.0, 0.0)]
+    
+    chunk_duration = chunk_duration_minutes * 60  # Convert to seconds
+    num_chunks = int(total_duration / chunk_duration) + 1
+    
+    for i in range(num_chunks):
+        start_time = i * chunk_duration
+        end_time = min((i + 1) * chunk_duration, total_duration)
+        
+        if start_time >= total_duration:
+            break
+        
+        chunk_path = wav_path.parent / f"{wav_path.stem}_chunk_{i}.wav"
+        
+        # Extract chunk using FFmpeg
+        cmd = [
+            "ffmpeg", "-i", str(wav_path),
+            "-ss", str(start_time),
+            "-to", str(end_time),
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "-y",
+            str(chunk_path)
+        ]
+        
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            chunks.append((chunk_path, start_time, end_time))
+            logger.info(f"Created chunk {i+1}/{num_chunks}: {start_time:.0f}s - {end_time:.0f}s")
+        except Exception as e:
+            logger.warning(f"Failed to create chunk {i+1}: {e}")
+    
+    return chunks
+
+
 def _chunk_audio_file(wav_path: Path, chunk_duration_minutes: int = 10) -> list[tuple[Path, float, float]]:
     """Split audio file into chunks for memory-efficient processing.
     
@@ -485,8 +609,7 @@ def transcribe_file(
         if progress_callback:
             progress_callback(45, "Optimizing audio quality...")
 
-        # Post-process: Trim silence to reduce extraneous audio (VAD handles this now)
-        wav_path = _trim_silence_from_audio(wav_path)
+        # VAD handles silence detection properly, no FFmpeg trimming needed
 
         if progress_callback:
             progress_callback(50, "Starting ASR transcription...")
@@ -495,10 +618,6 @@ def transcribe_file(
         logger.info(f"Transcribing from: {transcribe_input}")
 
         # Audio chunking for long files
-        audio_duration = wav_path.stat().st_size / (16000 * 2)  # Rough estimate from 16kHz mono
-        estimated_duration_minutes = audio_duration / (16000 * 60)  # Very rough estimate
-        
-        # Check if file is long enough to warrant chunking
         chunk_size_threshold = 15 * 60  # 15 minutes in seconds
         needs_chunking = False
         actual_duration = 0
@@ -513,6 +632,7 @@ def transcribe_file(
         except:
             # If probe fails, estimate from file size
             needs_chunking = wav_path.stat().st_size > 50 * 1024 * 1024  # 50MB threshold
+            actual_duration = wav_path.stat().st_size / (16000 * 2)  # Rough estimate
             logger.info("Could not probe duration, using file size estimate")
 
         all_text_parts = []

@@ -383,7 +383,8 @@ if uploaded_file:
                         st.session_state.selected_language,
                         custom_vocabulary_list,
                         custom_corrections_dict,
-                        combined_keywords
+                        combined_keywords,
+                        chunk_duration_minutes=10  # 10-minute chunks for long files
                     )
             except Exception as transcribe_error:
                 st.error(f"Transcription failed: {str(transcribe_error)}")

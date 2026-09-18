@@ -198,14 +198,61 @@ def _apply_beam_search_decoding(segments: list[TranscriptionSegment]) -> list[Tr
     return corrected_segments
 
 
-def _trim_silence_from_audio(wav_path: Path, enable_trim: bool = True) -> Path:
-    """Disabled - VAD with speech padding is now used instead for better natural pause preservation.
+def _chunk_audio_file(wav_path: Path, chunk_duration_minutes: int = 10) -> list[tuple[Path, float, float]]:
+    """Split audio file into chunks for memory-efficient processing.
     
-    VAD with 400ms speech padding provides better protection for natural pauses,
-    comedic timing, and soft-spoken endings than FFmpeg-based silence trimming.
+    Args:
+        wav_path: Path to the WAV file
+        chunk_duration_minutes: Duration of each chunk in minutes (default 10)
+    
+    Returns:
+        List of tuples: (chunk_path, start_time, end_time)
     """
-    # Always return original - VAD handles silence detection properly
-    return wav_path
+    chunks = []
+    
+    # Get audio duration
+    probe_cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(wav_path)
+    ]
+    result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+    total_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+    
+    if total_duration == 0:
+        return [(wav_path, 0.0, 0.0)]
+    
+    chunk_duration = chunk_duration_minutes * 60  # Convert to seconds
+    num_chunks = int(total_duration / chunk_duration) + 1
+    
+    for i in range(num_chunks):
+        start_time = i * chunk_duration
+        end_time = min((i + 1) * chunk_duration, total_duration)
+        
+        if start_time >= total_duration:
+            break
+        
+        chunk_path = wav_path.parent / f"{wav_path.stem}_chunk_{i}.wav"
+        
+        # Extract chunk using FFmpeg
+        cmd = [
+            "ffmpeg", "-i", str(wav_path),
+            "-ss", str(start_time),
+            "-to", str(end_time),
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            "-y",
+            str(chunk_path)
+        ]
+        
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            chunks.append((chunk_path, start_time, end_time))
+            logger.info(f"Created chunk {i+1}/{num_chunks}: {start_time:.0f}s - {end_time:.0f}s")
+        except Exception as e:
+            logger.warning(f"Failed to create chunk {i+1}: {e}")
+    
+    return chunks
 
 
 def _check_ffmpeg_available() -> bool:
@@ -345,6 +392,7 @@ def transcribe_file(
     custom_vocabulary: list[str] = None,
     custom_corrections: dict[str, str] = None,
     keywords: str = None,
+    chunk_duration_minutes: int = 10,
 ) -> TranscriptionResult:
     """Transcribe a media file to text using faster-whisper backend with ASR fixes.
 
@@ -356,6 +404,7 @@ def transcribe_file(
         custom_vocabulary: List of custom terms to bias recognition (e.g., proper names, brand names)
         custom_corrections: Dictionary of custom corrections for specific phrases
         keywords: Optional keywords from filename or user input for dynamic topic extraction
+        chunk_duration_minutes: Duration of each audio chunk in minutes (default 10)
 
     Returns:
         TranscriptionResult with text, segments, and detected language
@@ -445,6 +494,31 @@ def transcribe_file(
         transcribe_input = wav_path
         logger.info(f"Transcribing from: {transcribe_input}")
 
+        # Audio chunking for long files
+        audio_duration = wav_path.stat().st_size / (16000 * 2)  # Rough estimate from 16kHz mono
+        estimated_duration_minutes = audio_duration / (16000 * 60)  # Very rough estimate
+        
+        # Check if file is long enough to warrant chunking
+        chunk_size_threshold = 15 * 60  # 15 minutes in seconds
+        needs_chunking = False
+        actual_duration = 0
+        
+        try:
+            probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                         "-of", "default=noprint_wrappers=1:nokey=1", str(wav_path)]
+            result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+            actual_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
+            needs_chunking = actual_duration > chunk_size_threshold
+            logger.info(f"Audio duration: {actual_duration:.0f}s, chunking needed: {needs_chunking}")
+        except:
+            # If probe fails, estimate from file size
+            needs_chunking = wav_path.stat().st_size > 50 * 1024 * 1024  # 50MB threshold
+            logger.info("Could not probe duration, using file size estimate")
+
+        all_text_parts = []
+        all_segments = []
+        chunk_offset = 0
+
         # ASR Optimization: Explicit language constraint to avoid code-switching issues
         language_param = language if language else None
 
@@ -497,72 +571,133 @@ def transcribe_file(
             else:
                 initial_prompt = keywords
 
-        try:
-            raw_segments, info = model.transcribe(
-                str(transcribe_input),
-                language=language_param,
-                beam_size=beam_size,
-                temperature=temperature,
-                no_speech_threshold=no_speech_threshold,
-                initial_prompt=initial_prompt,
-                word_timestamps=True,  # Better for chunk alignment
-                condition_on_previous_text=condition_on_previous_text,  # Prevent error cascading
-                compression_ratio_threshold=compression_ratio_threshold,  # Guard against infinite loops
-                vad_filter=vad_filter,
-                vad_parameters=vad_parameters
-            )
-        except Exception as transcribe_error:
-            logger.error(f"Transcription failed: {str(transcribe_error)}")
-            logger.error(f"Error type: {type(transcribe_error).__name__}")
-            # Provide more specific error messages for common issues
-            if "CUDA out of memory" in str(transcribe_error).lower() or "out of memory" in str(transcribe_error).lower():
-                raise RuntimeError("Out of memory during transcription. Try using a smaller model (tiny or base) or process locally with more RAM.") from transcribe_error
-            elif "timeout" in str(transcribe_error).lower():
-                raise RuntimeError("Transcription timeout. The file may be too large for cloud processing. Try processing locally.") from transcribe_error
-            else:
-                raise RuntimeError(f"ASR transcription failed: {str(transcribe_error)}") from transcribe_error
+        all_text_parts = []
+        all_segments = []
+        chunk_offset = 0
 
-        total_duration = info.duration
-        text_parts: list[str] = []
-        captured_segments: list[TranscriptionSegment] = []
-
-        # Process segments lazily (avoid list(segments) in memory for long files)
-        # This prevents memory bloat when processing 40+ minute files on 1GB RAM containers
-
-        segment_count = 0
-        max_segments = 10000  # Safety limit to prevent infinite loops
-        
-        for seg in raw_segments:
-            seg_text = seg.text.strip()
+        if needs_chunking:
+            # Process audio in chunks for long files
+            if progress_callback:
+                progress_callback(52, f"Preparing audio chunks ({chunk_duration_minutes} min each)...")
             
-            # ASR Fix: Filter out very short segments that might be hallucinations
-            if len(seg_text) < 2:
-                continue
+            chunks = _chunk_audio_file(wav_path, chunk_duration_minutes)
+            num_chunks = len(chunks)
+            
+            if progress_callback:
+                progress_callback(55, f"Processing {num_chunks} audio chunks...")
+            
+            for chunk_idx, (chunk_path, start_time, end_time) in enumerate(chunks):
+                chunk_offset = start_time
                 
-            # ASR Fix: Skip segments that are just repeating punctuation
-            if seg_text in [".", ",", "!", "?", "...", "...."]:
-                continue
-            
-            # Safety limit to prevent infinite loops or memory issues
-            segment_count += 1
-            if segment_count > max_segments:
-                logger.warning(f"Reached maximum segment limit ({max_segments}), stopping transcription")
-                break
+                if progress_callback and needs_chunking:
+                    current_percent = 55 + int((chunk_idx / num_chunks) * 35)
+                    progress_callback(
+                        current_percent,
+                        f"Processing chunk {chunk_idx + 1}/{num_chunks} ({start_time:.0f}s - {end_time:.0f}s)..."
+                    )
                 
-            text_parts.append(seg_text)
-            captured_segments.append(
-                TranscriptionSegment(start=float(seg.start), end=float(seg.end), text=seg_text)
-            )
-            
-            if progress_callback and total_duration > 0:
-                current_percent = 50 + int((seg.end / total_duration) * 45)  # 50-95% for transcription
-                current_percent = min(95, current_percent)
-                progress_callback(
-                    current_percent,
-                    f"Transcribing: {int(seg.end)}s / {int(total_duration)}s ({current_percent}%)",
+                try:
+                    raw_segments, info = model.transcribe(
+                        str(chunk_path),
+                        language=language_param,
+                        beam_size=beam_size,
+                        temperature=temperature,
+                        no_speech_threshold=no_speech_threshold,
+                        initial_prompt=initial_prompt,
+                        word_timestamps=True,
+                        condition_on_previous_text=condition_on_previous_text,
+                        compression_ratio_threshold=compression_ratio_threshold,
+                        vad_filter=vad_filter,
+                        vad_parameters=vad_parameters
+                    )
+                    
+                    # Process segments with offset adjustment
+                    for seg in raw_segments:
+                        seg_text = seg.text.strip()
+                        
+                        if len(seg_text) < 2:
+                            continue
+                        if seg_text in [".", ",", "!", "?", "...", "...."]:
+                            continue
+                        
+                        # Adjust timestamps by chunk offset
+                        adjusted_start = seg.start + chunk_offset
+                        adjusted_end = seg.end + chunk_offset
+                        
+                        all_text_parts.append(seg_text)
+                        all_segments.append(
+                            TranscriptionSegment(start=adjusted_start, end=adjusted_end, text=seg_text)
+                        )
+                    
+                    # Clean up chunk file
+                    if chunk_path.exists():
+                        chunk_path.unlink()
+                        
+                except Exception as chunk_error:
+                    logger.error(f"Chunk {chunk_idx + 1} failed: {chunk_error}")
+                    # Continue with other chunks instead of failing completely
+                    continue
+                
+                # Memory cleanup between chunks
+                import gc
+                gc.collect()
+        else:
+            # Process entire file at once for short files
+            try:
+                raw_segments, info = model.transcribe(
+                    str(transcribe_input),
+                    language=language_param,
+                    beam_size=beam_size,
+                    temperature=temperature,
+                    no_speech_threshold=no_speech_threshold,
+                    initial_prompt=initial_prompt,
+                    word_timestamps=True,
+                    condition_on_previous_text=condition_on_previous_text,
+                    compression_ratio_threshold=compression_ratio_threshold,
+                    vad_filter=vad_filter,
+                    vad_parameters=vad_parameters
                 )
+            except Exception as transcribe_error:
+                logger.error(f"Transcription failed: {str(transcribe_error)}")
+                logger.error(f"Error type: {type(transcribe_error).__name__}")
+                if "CUDA out of memory" in str(transcribe_error).lower() or "out of memory" in str(transcribe_error).lower():
+                    raise RuntimeError("Out of memory during transcription. Try using a smaller model (tiny or base) or process locally with more RAM.") from transcribe_error
+                elif "timeout" in str(transcribe_error).lower():
+                    raise RuntimeError("Transcription timeout. The file may be too large for cloud processing. Try processing locally.") from transcribe_error
+                else:
+                    raise RuntimeError(f"ASR transcription failed: {str(transcribe_error)}") from transcribe_error
 
-        text = " ".join(t for t in text_parts if t).strip()
+            # Process segments lazily (avoid list(segments) in memory for long files)
+            segment_count = 0
+            max_segments = 10000
+            
+            for seg in raw_segments:
+                seg_text = seg.text.strip()
+                
+                if len(seg_text) < 2:
+                    continue
+                if seg_text in [".", ",", "!", "?", "...", "...."]:
+                    continue
+                
+                segment_count += 1
+                if segment_count > max_segments:
+                    logger.warning(f"Reached maximum segment limit ({max_segments}), stopping transcription")
+                    break
+                    
+                all_text_parts.append(seg_text)
+                all_segments.append(
+                    TranscriptionSegment(start=float(seg.start), end=float(seg.end), text=seg_text)
+                )
+                
+                if progress_callback and actual_duration > 0:
+                    current_percent = 55 + int((seg.end / actual_duration) * 40)
+                    current_percent = min(95, current_percent)
+                    progress_callback(
+                        current_percent,
+                        f"Transcribing: {int(seg.end)}s / {int(actual_duration)}s ({current_percent}%)",
+                    )
+
+        text = " ".join(t for t in all_text_parts if t).strip()
 
         if progress_callback:
             progress_callback(95, "Post-processing transcript...")
@@ -581,11 +716,10 @@ def transcribe_file(
         gc.collect()
 
         # Post-process: Basic text normalization (conservative, universal fixes only)
-        # Removed redundant beam search corrections for memory efficiency
         text = _normalize_text(text, custom_vocabulary, custom_corrections)
 
         # Post-process: Normalize individual segments
-        for seg in captured_segments:
+        for seg in all_segments:
             seg.text = _normalize_text(seg.text, custom_vocabulary, custom_corrections)
 
         # Additional garbage collection after post-processing
@@ -594,19 +728,17 @@ def transcribe_file(
         if progress_callback:
             progress_callback(100, "Transcription complete!")
 
-        detected_language = getattr(info, "language", language)
+        detected_language = language if language else "en"
         logger.info(
             f"backend=faster-whisper "
             f"device={'cuda' if (gpu_available and getattr(model, 'device', 'cpu') == 'cuda') else 'cpu'} "
             f"compute_type={'float16' if gpu_available else 'int8'} "
             f"model={model_name} "
-            f"language={detected_language}"
+            f"language={detected_language} "
+            f"chunks={len(chunks) if needs_chunking else 1}"
         )
-        return TranscriptionResult(
-            text=text,
-            segments=captured_segments,
-            language=detected_language,
-        )
+
+        return TranscriptionResult(text=text, segments=all_segments, language=detected_language)
 
     except ImportError:
         raise RuntimeError("faster-whisper not installed. Please install it with: pip install faster-whisper")

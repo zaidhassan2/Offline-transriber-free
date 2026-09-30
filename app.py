@@ -144,6 +144,8 @@ if 'processing' not in st.session_state:
     st.session_state.processing = False
 if 'selected_language' not in st.session_state:
     st.session_state.selected_language = None
+if 'file_uploaded' not in st.session_state:
+    st.session_state.file_uploaded = False
 
 # Header
 st.markdown("""
@@ -275,16 +277,18 @@ st.markdown("## Upload Media File")
 uploaded_file = st.file_uploader(
     "Choose a video or audio file",
     type=['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'flac', 'ogg'],
-    help="Supported video formats: MP4, MOV, AVI, MKV, WEBM. Supported audio formats: MP3, WAV, M4A, FLAC, OGG",
-    key="file_uploader"
+    help="Supported video formats: MP4, MOV, AVI, MKV, WEBM. Supported audio formats: MP3, WAV, M4A, FLAC, OGG"
 )
 
 # Extract keywords from filename for automatic topic extraction (after file upload)
 filename_keywords = None
-if uploaded_file:
+if uploaded_file is not None:
+    st.session_state.file_uploaded = True
     filename = uploaded_file.name
     # Extract first 100 characters from filename as context
     filename_keywords = filename[:100].replace('_', ' ').replace('-', ' ')
+else:
+    st.session_state.file_uploaded = False
 
 # Combine user keywords with filename keywords
 combined_keywords = None
@@ -296,7 +300,7 @@ if uploaded_file or keywords_input:
         all_keywords.append(filename_keywords)
     combined_keywords = " ".join(all_keywords) if all_keywords else None
 
-if uploaded_file:
+if uploaded_file is not None:
     st.markdown(f"""
     <div class="info-badge">
         File: {uploaded_file.name}
@@ -309,13 +313,14 @@ if uploaded_file:
 
     col1, col2 = st.columns([1, 1])
     with col1:
-        start_button = st.button("Start Transcription", type="primary", disabled=st.session_state.processing, key="start_transcription")
+        start_button = st.button("Start Transcription", type="primary", disabled=st.session_state.processing)
     with col2:
-        clear_button = st.button("Clear", disabled=st.session_state.processing, key="clear_button")
+        clear_button = st.button("Clear", disabled=st.session_state.processing)
 
     if clear_button:
         st.session_state.current_file = None
         st.session_state.transcription_result = None
+        st.session_state.file_uploaded = False
         st.rerun()
 
     if start_button and not st.session_state.processing:

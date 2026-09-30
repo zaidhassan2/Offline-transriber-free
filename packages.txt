@@ -1,1 +1,5 @@
 ffmpeg
+pkg-config
+libavcodec-dev
+libavformat-dev
+libavutil-dev

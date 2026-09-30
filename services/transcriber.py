@@ -471,6 +471,7 @@ def transcribe_file(
                 logger.info("faster-whisper initialized with CPU (compute_type=int8)")
         
         model = _model_cache[cache_key]
+        logger.info(f"Model loaded successfully from cache: {cache_key}")
         
         if progress_callback:
             progress_callback(20, "Model loaded successfully")
@@ -487,6 +488,9 @@ def transcribe_file(
 
         try:
             wav_path = _extract_audio_to_wav(media_path)
+            logger.info(f"Audio extracted to: {wav_path}")
+            logger.info(f"WAV file size: {wav_path.stat().st_size / (1024*1024):.2f} MB")
+            logger.info(f"WAV file exists: {wav_path.exists()}")
             if progress_callback:
                 progress_callback(40, "Audio extraction complete")
         except Exception as audio_error:
@@ -515,8 +519,10 @@ def transcribe_file(
             actual_duration = float(result.stdout.strip()) if result.stdout.strip() else 0
             needs_chunking = actual_duration > chunk_size_threshold
             logger.info(f"Audio duration: {actual_duration:.0f}s, chunking needed: {needs_chunking}")
-        except:
+            logger.info(f"Chunk size threshold: {chunk_size_threshold}s ({chunk_size_threshold/60:.0f} minutes)")
+        except Exception as probe_error:
             # If probe fails, estimate from file size
+            logger.warning(f"Probe failed: {probe_error}, using file size estimate")
             needs_chunking = wav_path.stat().st_size > 50 * 1024 * 1024  # 50MB threshold
             actual_duration = wav_path.stat().st_size / (16000 * 2)  # Rough estimate
             logger.info("Could not probe duration, using file size estimate")
@@ -550,6 +556,17 @@ def transcribe_file(
             "min_silence_duration_ms": 800,  # Increased to 800ms for very long files to prevent aggressive chunking
             "speech_pad_ms": 500  # Buffers quiet consonants and low-energy speech
         }
+        
+        logger.info(f"ASR Configuration:")
+        logger.info(f"  Language: {language_param}")
+        logger.info(f"  Beam size: {beam_size}")
+        logger.info(f"  Temperature: {temperature}")
+        logger.info(f"  No speech threshold: {no_speech_threshold}")
+        logger.info(f"  Condition on previous text: {condition_on_previous_text}")
+        logger.info(f"  Compression ratio threshold: {compression_ratio_threshold}")
+        logger.info(f"  VAD filter: {vad_filter}")
+        logger.info(f"  VAD parameters: {vad_parameters}")
+        logger.info(f"  Initial prompt: {initial_prompt[:200] if initial_prompt else 'None'}...")
 
         # ASR Optimization: Prompt biasing for conversational context and meeting vocabulary
         # Multi-speaker conversational context with common meeting terms
@@ -600,6 +617,7 @@ def transcribe_file(
                     )
                 
                 try:
+                    logger.info(f"Starting transcription for chunk {chunk_idx + 1}/{num_chunks}: {chunk_path}")
                     raw_segments, info = model.transcribe(
                         str(chunk_path),
                         language=language_param,
@@ -614,6 +632,10 @@ def transcribe_file(
                         vad_parameters=vad_parameters
                     )
                     
+                    logger.info(f"Model.transcribe returned generator for chunk {chunk_idx + 1}")
+                    logger.info(f"Detected language: {info.language if info else 'unknown'}")
+                    
+                    chunk_segment_count = 0
                     # Process segments with offset adjustment
                     for seg in raw_segments:
                         seg_text = seg.text.strip()
@@ -632,6 +654,9 @@ def transcribe_file(
                         all_segments.append(
                             TranscriptionSegment(start=adjusted_start, end=adjusted_end, text=seg_text)
                         )
+                        chunk_segment_count += 1
+                    
+                    logger.info(f"Chunk {chunk_idx + 1} processed: {chunk_segment_count} segments extracted")
                     
                     # Clean up chunk file
                     if chunk_path.exists():
@@ -649,6 +674,7 @@ def transcribe_file(
         else:
             # Process entire file at once for short files
             try:
+                logger.info(f"Starting transcription for entire file: {transcribe_input}")
                 raw_segments, info = model.transcribe(
                     str(transcribe_input),
                     language=language_param,
@@ -662,6 +688,8 @@ def transcribe_file(
                     vad_filter=vad_filter,
                     vad_parameters=vad_parameters
                 )
+                logger.info(f"Model.transcribe returned generator for entire file")
+                logger.info(f"Detected language: {info.language if info else 'unknown'}")
             except Exception as transcribe_error:
                 logger.error(f"Transcription failed: {str(transcribe_error)}")
                 logger.error(f"Error type: {type(transcribe_error).__name__}")
@@ -704,6 +732,17 @@ def transcribe_file(
                     )
 
         text = " ".join(t for t in all_text_parts if t).strip()
+        
+        logger.info(f"Transcription complete. Total segments collected: {len(all_segments)}")
+        logger.info(f"Total text parts collected: {len(all_text_parts)}")
+        logger.info(f"Final text length: {len(text)} characters")
+        if len(all_segments) == 0:
+            logger.error("No segments were collected during transcription!")
+            logger.error(f"Audio duration: {actual_duration:.0f}s")
+            logger.error(f"Chunking was used: {needs_chunking}")
+            logger.error(f"Language parameter: {language_param}")
+            logger.error(f"Model: {model_name}")
+            logger.error(f"Device: {device}")
 
         if progress_callback:
             progress_callback(95, "Post-processing transcript...")

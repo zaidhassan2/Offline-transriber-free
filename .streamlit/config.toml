@@ -10,6 +10,7 @@ font = "sans serif"
 maxUploadSize = 300
 enableCORS = false
 enableXsrfProtection = false
+pythonVersion = "3.11"
 
 [client]
 showErrorDetails = false

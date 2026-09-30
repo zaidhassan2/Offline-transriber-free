@@ -275,7 +275,8 @@ st.markdown("## Upload Media File")
 uploaded_file = st.file_uploader(
     "Choose a video or audio file",
     type=['mp4', 'mov', 'avi', 'mkv', 'webm', 'mp3', 'wav', 'm4a', 'flac', 'ogg'],
-    help="Supported video formats: MP4, MOV, AVI, MKV, WEBM. Supported audio formats: MP3, WAV, M4A, FLAC, OGG"
+    help="Supported video formats: MP4, MOV, AVI, MKV, WEBM. Supported audio formats: MP3, WAV, M4A, FLAC, OGG",
+    key="file_uploader"
 )
 
 # Extract keywords from filename for automatic topic extraction (after file upload)
@@ -304,12 +305,13 @@ if uploaded_file:
         Size: {uploaded_file.size / (1024*1024):.2f} MB
     </div>
     """, unsafe_allow_html=True)
+    st.success("✅ File uploaded successfully! Click 'Start Transcription' to begin.")
 
     col1, col2 = st.columns([1, 1])
     with col1:
-        start_button = st.button("Start Transcription", type="primary", disabled=st.session_state.processing)
+        start_button = st.button("Start Transcription", type="primary", disabled=st.session_state.processing, key="start_transcription")
     with col2:
-        clear_button = st.button("Clear", disabled=st.session_state.processing)
+        clear_button = st.button("Clear", disabled=st.session_state.processing, key="clear_button")
 
     if clear_button:
         st.session_state.current_file = None

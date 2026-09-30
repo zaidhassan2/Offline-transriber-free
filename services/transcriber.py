@@ -557,17 +557,6 @@ def transcribe_file(
             "speech_pad_ms": 500  # Buffers quiet consonants and low-energy speech
         }
         
-        logger.info(f"ASR Configuration:")
-        logger.info(f"  Language: {language_param}")
-        logger.info(f"  Beam size: {beam_size}")
-        logger.info(f"  Temperature: {temperature}")
-        logger.info(f"  No speech threshold: {no_speech_threshold}")
-        logger.info(f"  Condition on previous text: {condition_on_previous_text}")
-        logger.info(f"  Compression ratio threshold: {compression_ratio_threshold}")
-        logger.info(f"  VAD filter: {vad_filter}")
-        logger.info(f"  VAD parameters: {vad_parameters}")
-        logger.info(f"  Initial prompt: {initial_prompt[:200] if initial_prompt else 'None'}...")
-
         # ASR Optimization: Prompt biasing for conversational context and meeting vocabulary
         # Multi-speaker conversational context with common meeting terms
         initial_prompt = None
@@ -589,6 +578,17 @@ def transcribe_file(
                 initial_prompt += " " + keywords
             else:
                 initial_prompt = keywords
+        
+        logger.info(f"ASR Configuration:")
+        logger.info(f"  Language: {language_param}")
+        logger.info(f"  Beam size: {beam_size}")
+        logger.info(f"  Temperature: {temperature}")
+        logger.info(f"  No speech threshold: {no_speech_threshold}")
+        logger.info(f"  Condition on previous text: {condition_on_previous_text}")
+        logger.info(f"  Compression ratio threshold: {compression_ratio_threshold}")
+        logger.info(f"  VAD filter: {vad_filter}")
+        logger.info(f"  VAD parameters: {vad_parameters}")
+        logger.info(f"  Initial prompt: {initial_prompt[:200] if initial_prompt else 'None'}...")
 
         all_text_parts = []
         all_segments = []

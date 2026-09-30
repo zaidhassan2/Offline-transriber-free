@@ -636,27 +636,33 @@ def transcribe_file(
                     logger.info(f"Detected language: {info.language if info else 'unknown'}")
                     
                     chunk_segment_count = 0
+                    chunk_text_length = 0
                     # Process segments with offset adjustment
-                    for seg in raw_segments:
-                        seg_text = seg.text.strip()
-                        
-                        # Less aggressive filtering - only skip truly empty segments
-                        if not seg_text:
-                            continue
-                        if seg_text in [".", ",", "!", "?"]:
-                            continue
-                        
-                        # Adjust timestamps by chunk offset
-                        adjusted_start = seg.start + chunk_offset
-                        adjusted_end = seg.end + chunk_offset
-                        
-                        all_text_parts.append(seg_text)
-                        all_segments.append(
-                            TranscriptionSegment(start=adjusted_start, end=adjusted_end, text=seg_text)
-                        )
-                        chunk_segment_count += 1
+                    try:
+                        for seg in raw_segments:
+                            seg_text = seg.text.strip()
+                            
+                            # Less aggressive filtering - only skip truly empty segments
+                            if not seg_text:
+                                continue
+                            if seg_text in [".", ",", "!", "?"]:
+                                continue
+                            
+                            # Adjust timestamps by chunk offset
+                            adjusted_start = seg.start + chunk_offset
+                            adjusted_end = seg.end + chunk_offset
+                            
+                            all_text_parts.append(seg_text)
+                            all_segments.append(
+                                TranscriptionSegment(start=adjusted_start, end=adjusted_end, text=seg_text)
+                            )
+                            chunk_segment_count += 1
+                            chunk_text_length += len(seg_text)
+                    except Exception as segment_error:
+                        logger.error(f"Error iterating segments in chunk {chunk_idx + 1}: {segment_error}")
+                        raise
                     
-                    logger.info(f"Chunk {chunk_idx + 1} processed: {chunk_segment_count} segments extracted")
+                    logger.info(f"Chunk {chunk_idx + 1} processed: {chunk_segment_count} segments extracted, {chunk_text_length} characters")
                     
                     # Clean up chunk file
                     if chunk_path.exists():
@@ -703,33 +709,41 @@ def transcribe_file(
             # Process segments lazily (avoid list(segments) in memory for long files)
             segment_count = 0
             max_segments = 10000
+            total_text_length = 0
             
-            for seg in raw_segments:
-                seg_text = seg.text.strip()
-                
-                # Less aggressive filtering - only skip truly empty segments
-                if not seg_text:
-                    continue
-                if seg_text in [".", ",", "!", "?"]:
-                    continue
-                
-                segment_count += 1
-                if segment_count > max_segments:
-                    logger.warning(f"Reached maximum segment limit ({max_segments}), stopping transcription")
-                    break
+            try:
+                for seg in raw_segments:
+                    seg_text = seg.text.strip()
                     
-                all_text_parts.append(seg_text)
-                all_segments.append(
-                    TranscriptionSegment(start=float(seg.start), end=float(seg.end), text=seg_text)
-                )
-                
-                if progress_callback and actual_duration > 0:
-                    current_percent = 55 + int((seg.end / actual_duration) * 40)
-                    current_percent = min(95, current_percent)
-                    progress_callback(
-                        current_percent,
-                        f"Transcribing: {int(seg.end)}s / {int(actual_duration)}s ({current_percent}%)",
+                    # Less aggressive filtering - only skip truly empty segments
+                    if not seg_text:
+                        continue
+                    if seg_text in [".", ",", "!", "?"]:
+                        continue
+                    
+                    segment_count += 1
+                    if segment_count > max_segments:
+                        logger.warning(f"Reached maximum segment limit ({max_segments}), stopping transcription")
+                        break
+                        
+                    all_text_parts.append(seg_text)
+                    all_segments.append(
+                        TranscriptionSegment(start=float(seg.start), end=float(seg.end), text=seg_text)
                     )
+                    total_text_length += len(seg_text)
+                    
+                    if progress_callback and actual_duration > 0:
+                        current_percent = 55 + int((seg.end / actual_duration) * 40)
+                        current_percent = min(95, current_percent)
+                        progress_callback(
+                            current_percent,
+                            f"Transcribing: {int(seg.end)}s / {int(actual_duration)}s ({current_percent}%)",
+                        )
+            except Exception as segment_error:
+                logger.error(f"Error iterating segments: {segment_error}")
+                raise
+            
+            logger.info(f"Non-chunked transcription complete: {segment_count} segments, {total_text_length} characters")
 
         text = " ".join(t for t in all_text_parts if t).strip()
         

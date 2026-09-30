@@ -491,17 +491,6 @@ def transcribe_file(
             logger.info(f"Audio extracted to: {wav_path}")
             logger.info(f"WAV file size: {wav_path.stat().st_size / (1024*1024):.2f} MB")
             logger.info(f"WAV file exists: {wav_path.exists()}")
-            
-            # Verify WAV file is not corrupted by reading header
-            if wav_path.exists() and wav_path.stat().st_size > 44:
-                with open(wav_path, 'rb') as f:
-                    header = f.read(44)
-                    logger.info(f"WAV header: {header[:4]} (should be b'RIFF')")
-                    if header[:4] != b'RIFF':
-                        logger.error("WAV file header is invalid!")
-            else:
-                logger.error(f"WAV file is too small or doesn't exist! Size: {wav_path.stat().st_size if wav_path.exists() else 0}")
-            
             if progress_callback:
                 progress_callback(40, "Audio extraction complete")
         except Exception as audio_error:
@@ -546,7 +535,7 @@ def transcribe_file(
         temperature = 0.0  # Deterministic decoding for greedy search
 
         # ASR Optimization: No speech threshold to handle low-confidence audio
-        no_speech_threshold = 0.0  # DISABLED - Allow all speech, even very low confidence
+        no_speech_threshold = 0.4  # Reduced from 0.5 to catch more low-energy speech during crowd noise
 
         # ASR Optimization: condition_on_previous_text to prevent error cascading
         condition_on_previous_text = False  # Disable to prevent error cascading without adding latency
@@ -561,11 +550,11 @@ def transcribe_file(
         beam_size = 1  # Greedy decoding to minimize tensor allocation overhead
 
         # ASR Optimization: VAD parameters with generous padding for natural pauses
-        # DISABLED VAD temporarily to test if it's blocking segments
-        vad_filter = False  # DISABLED - VAD may be too aggressive
+        # Optimized for long files (40+ minutes) to prevent word boundary cuts
+        vad_filter = True
         vad_parameters = {
-            "min_silence_duration_ms": 400,  # Reduced to be less aggressive
-            "speech_pad_ms": 300  # Reduced padding
+            "min_silence_duration_ms": 800,  # Increased to 800ms for very long files to prevent aggressive chunking
+            "speech_pad_ms": 500  # Buffers quiet consonants and low-energy speech
         }
         
         # ASR Optimization: Prompt biasing for conversational context and meeting vocabulary
@@ -653,11 +642,11 @@ def transcribe_file(
                         for seg in raw_segments:
                             seg_text = seg.text.strip()
                             
-                            # TEMPORARILY DISABLE ALL FILTERING to see if filtering is the issue
-                            # if not seg_text:
-                            #     continue
-                            # if seg_text in [".", ",", "!", "?"]:
-                            #     continue
+                            # Less aggressive filtering - only skip truly empty segments
+                            if not seg_text:
+                                continue
+                            if seg_text in [".", ",", "!", "?"]:
+                                continue
                             
                             # Adjust timestamps by chunk offset
                             adjusted_start = seg.start + chunk_offset
@@ -730,11 +719,11 @@ def transcribe_file(
                 for seg in raw_segments:
                     seg_text = seg.text.strip()
                     
-                    # TEMPORARILY DISABLE ALL FILTERING to see if filtering is the issue
-                    # if not seg_text:
-                    #     continue
-                    # if seg_text in [".", ",", "!", "?"]:
-                    #     continue
+                    # Less aggressive filtering - only skip truly empty segments
+                    if not seg_text:
+                        continue
+                    if seg_text in [".", ",", "!", "?"]:
+                        continue
                     
                     segment_count += 1
                     if segment_count > max_segments:

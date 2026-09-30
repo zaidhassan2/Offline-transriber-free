@@ -594,18 +594,20 @@ def transcribe_file(
         all_segments = []
         chunk_offset = 0
         num_chunks_processed = 0  # Track for logging
+        chunk_errors = []  # Track chunk errors for reporting
+        num_chunks = 1  # Default for non-chunked
 
         if needs_chunking:
             # Process audio in chunks for long files
             if progress_callback:
                 progress_callback(52, f"Preparing audio chunks ({chunk_duration_minutes} min each)...")
-            
+
             chunks = _chunk_audio_file(wav_path, chunk_duration_minutes)
             num_chunks = len(chunks)
-            
+
             if progress_callback:
                 progress_callback(55, f"Processing {num_chunks} audio chunks...")
-            
+
             for chunk_idx, (chunk_path, start_time, end_time) in enumerate(chunks):
                 chunk_offset = start_time
                 
@@ -675,6 +677,7 @@ def transcribe_file(
                         
                 except Exception as chunk_error:
                     logger.error(f"Chunk {chunk_idx + 1} failed: {chunk_error}")
+                    chunk_errors.append((chunk_idx + 1, str(chunk_error)))
                     # Continue with other chunks instead of failing completely
                     continue
                 
@@ -754,7 +757,7 @@ def transcribe_file(
             logger.info(f"Non-chunked transcription complete: {segment_count} segments, {total_text_length} characters")
 
         text = " ".join(t for t in all_text_parts if t).strip()
-        
+
         logger.info(f"Transcription complete. Total segments collected: {len(all_segments)}")
         logger.info(f"Total text parts collected: {len(all_text_parts)}")
         logger.info(f"Final text length: {len(text)} characters")
@@ -765,6 +768,12 @@ def transcribe_file(
             logger.error(f"Language parameter: {language_param}")
             logger.error(f"Model: {model_name}")
             logger.error(f"Device: {device}")
+            # If all chunks failed, raise an error with the actual failure details
+            if chunk_errors and len(chunk_errors) == num_chunks:
+                error_details = "; ".join([f"Chunk {idx}: {err}" for idx, err in chunk_errors])
+                raise RuntimeError(f"All transcription chunks failed. Errors: {error_details}")
+            else:
+                raise RuntimeError("Transcription produced no segments. Check audio file and try again.")
 
         if progress_callback:
             progress_callback(95, "Post-processing transcript...")
